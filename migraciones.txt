@@ -1,0 +1,1669 @@
+﻿
+=== 2026_04_23_051115_create_cache_table.php ===
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+/**
+ * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ *  TABLA: cache / cache_locks
+ * â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+ *  DECISIÃ“N ARQUITECTÃ“NICA:
+ *  MigraciÃ³n estÃ¡ndar de Laravel 11. No se modifica.
+ *  El sistema de cachÃ© se utilizarÃ¡ en SIGET para almacenar
+ *  temporalmente los conteos del dashboard (total_familias,
+ *  total_habitantes, etc.) y evitar queries repetidas en cada
+ *  carga de pÃ¡gina. PatrÃ³n aplicado: Cache-Aside.
+ * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ */
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('cache', function (Blueprint $table) {
+            $table->string('key')->primary();
+            $table->mediumText('value');
+            $table->integer('expiration')->index();
+        });
+
+        Schema::create('cache_locks', function (Blueprint $table) {
+            $table->string('key')->primary();
+            $table->string('owner');
+            $table->integer('expiration')->index();
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('cache_locks');
+        Schema::dropIfExists('cache');
+    }
+};
+
+=== 2026_04_23_051237_create_jobs_table.php ===
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+/**
+ * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ *  TABLA: jobs / job_batches / failed_jobs
+ * â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+ *  DECISIÃ“N ARQUITECTÃ“NICA:
+ *  Infraestructura de colas de Laravel. Sin modificaciones.
+ *  En SIGET se usarÃ¡ para procesar tareas pesadas en segundo
+ *  plano: envÃ­o de notificaciones masivas a voceros, generaciÃ³n
+ *  de reportes PDF, procesamiento de imÃ¡genes de comprobantes QR.
+ *  PatrÃ³n: Command Queue / Producer-Consumer.
+ * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ */
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('jobs', function (Blueprint $table) {
+            $table->id();
+            $table->string('queue')->index();
+            $table->longText('payload');
+            $table->unsignedTinyInteger('attempts');
+            $table->unsignedInteger('reserved_at')->nullable();
+            $table->unsignedInteger('available_at');
+            $table->unsignedInteger('created_at');
+        });
+
+        Schema::create('job_batches', function (Blueprint $table) {
+            $table->string('id')->primary();
+            $table->string('name');
+            $table->integer('total_jobs');
+            $table->integer('pending_jobs');
+            $table->integer('failed_jobs');
+            $table->longText('failed_job_ids');
+            $table->mediumText('options')->nullable();
+            $table->integer('cancelled_at')->nullable();
+            $table->integer('created_at');
+            $table->integer('finished_at')->nullable();
+        });
+
+        Schema::create('failed_jobs', function (Blueprint $table) {
+            $table->id();
+            $table->string('uuid')->unique();
+            $table->text('connection');
+            $table->text('queue');
+            $table->longText('payload');
+            $table->longText('exception');
+            $table->timestamp('failed_at')->useCurrent();
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('failed_jobs');
+        Schema::dropIfExists('job_batches');
+        Schema::dropIfExists('jobs');
+    }
+};
+
+=== 2026_04_23_051443_create_sedes_table.php ===
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+/**
+ * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ *  TABLA: sedes
+ * â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+ *  DECISIÃ“N ARQUITECTÃ“NICA:
+ *  `tipo_sede` se convierte de string libre a ENUM. En el sistema
+ *  original, un operador podrÃ­a escribir "administrativa",
+ *  "Administrativa" o "administ." â€” tres valores distintos para
+ *  el mismo concepto. El ENUM lo previene a nivel de DB.
+ *
+ *  Se agrega `softDeletes()`: una sede puede cerrarse pero sus
+ *  historiales de familias, voceros y proyectos deben preservarse.
+ *  Eliminar fÃ­sicamente una sede huÃ©rfana los datos relacionados.
+ *  PatrÃ³n: Data Preservation + Soft Delete.
+ * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ */
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('sedes', function (Blueprint $table) {
+            $table->id();
+            $table->string('nombre', 100);
+            $table->string('direccion', 255);
+
+            // ENUM: reemplaza el string libre del original
+            $table->enum('tipo_sede', [
+                'administrativa',
+                'salud',
+                'educativa',
+                'deportiva',
+                'cultural',
+                'otra',
+            ])->default('administrativa');
+
+            $table->enum('estado_infraestructura', ['optima', 'regular', 'critica'])
+                ->default('optima');
+
+            $table->text('observaciones')->nullable();
+
+            // Oct-2026 (georreferenciaciÃ³n): polÃ­gono del territorio de la sede
+            // (array de coordenadas [lng, lat]) para dibujar su contorno en el
+            // mapa de calor. Nullable: no todas las sedes lo tendrÃ¡n trazado.
+            $table->json('limites')->nullable();
+
+            $table->softDeletes();
+            $table->timestamps();
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('sedes');
+    }
+};
+
+=== 2026_04_23_051623_create_comites_table.php ===
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+/**
+ * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ *  TABLA: comites
+ * â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+ *  DECISIÃ“N ARQUITECTÃ“NICA â€” Adelanto de posiciÃ³n en el orden:
+ *
+ *  En el esquema original esta migraciÃ³n estaba al final (abril).
+ *  Se mueve ANTES que `calles` porque `voceros` y `proyectos`
+ *  referenciarÃ¡n `comite_id` (FK). Sin este adelanto, esas FKs
+ *  fallarÃ­an al ejecutar `php artisan migrate`.
+ *
+ *  PatrÃ³n aplicado: Dependency Graph en migraciones.
+ *  Antes de crear una migraciÃ³n, mapeamos el grafo de dependencias:
+ *  comites â†’ (ninguna)
+ *  calles  â†’ sedes
+ *  familias â†’ sedes, calles
+ *  habitantes â†’ familias
+ *  voceros â†’ habitantes, sedes, comites   â† necesita comites primero
+ * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ */
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('comites', function (Blueprint $table) {
+            $table->id();
+            $table->string('nombre', 100)->unique();
+            $table->text('descripcion')->nullable(); // Campo aÃ±adido: Ãºtil para reportes
+            $table->timestamps();
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('comites');
+    }
+};
+
+=== 2026_04_23_051747_create_calles_table.php ===
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+/**
+ * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ *  TABLA: calles
+ * â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+ *  DECISIÃ“N ARQUITECTÃ“NICA:
+ *  Sin cambios estructurales mayores. Se mantiene la FK a `sedes`
+ *  con CASCADE: si una sede es eliminada (soft delete), sus calles
+ *  tambiÃ©n quedan inaccesibles en cascada.
+ *
+ *  NOTA sobre soft deletes en cascada:
+ *  Laravel's softDeletes() es a nivel de aplicaciÃ³n, no de DB.
+ *  La FK ON DELETE CASCADE opera a nivel de DB sobre el DELETE fÃ­sico.
+ *  Para coherencia total, el Service de Sedes debe encargarse de
+ *  propagar el soft-delete a sus calles. Esto se documenta en el
+ *  SedeService para transparencia en la tesis.
+ * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ */
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('calles', function (Blueprint $table) {
+            $table->id();
+            $table->foreignId('sede_id')
+                ->constrained('sedes')
+                ->onDelete('cascade');
+            $table->string('nombre', 150);
+
+            // Oct-2026 (georreferenciaciÃ³n): punto de la calle/sector en el
+            // mapa de calor. Nullable hasta que el admin lo asigne en el mapa.
+            $table->decimal('latitud', 10, 7)->nullable();
+            $table->decimal('longitud', 10, 7)->nullable();
+
+            $table->timestamps();
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('calles');
+    }
+};
+
+=== 2026_04_23_051906_create_familias_table.php ===
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+/**
+ * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ *  TABLA: familias
+ * â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+ *  DECISIÃ“N ARQUITECTÃ“NICA:
+ *  1. `softDeletes()`: una familia no debe eliminarse fÃ­sicamente
+ *     porque sus beneficios, pagos y habitantes son datos censales
+ *     histÃ³ricos.
+ *
+ *  2. Ãndice compuesto (sede_id, condicion_vivienda): el dashboard
+ *     consulta "viviendas crÃ­ticas por sede"; sin Ã­ndice harÃ­a un
+ *     full-table-scan.
+ *
+ *  3. `nombre_responsable` (antes `nombre_jefe`): mÃ¡s neutro y
+ *     apropiado para datos censales.
+ *
+ *  4. Servicios bÃ¡sicos (agua, luz, aseo) como boolean default true.
+ *     `posee_luz` y `posee_aseo` antes se agregaban con la migraciÃ³n
+ *     `add_servicios_faltantes`; se fusionaron aquÃ­ para la
+ *     instalaciÃ³n limpia.
+ * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ */
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('familias', function (Blueprint $table) {
+            $table->id();
+
+            $table->foreignId('sede_id')
+                ->nullable()
+                ->constrained('sedes')
+                ->onDelete('set null');
+
+            $table->foreignId('calle_id')
+                ->nullable()
+                ->constrained('calles')
+                ->onDelete('set null');
+
+            // IdentificaciÃ³n
+            $table->string('codigo_vivienda', 20)->unique();
+            $table->string('nombre_responsable', 100)->nullable();
+            $table->string('punto_referencia', 255)->nullable();
+
+            // Servicios bÃ¡sicos
+            $table->unsignedTinyInteger('cantidad_bombonas')->default(1);
+            $table->enum('capacidad_bombona', ['10kg', '18kg', '43kg'])->default('10kg');
+            $table->boolean('posee_agua_potable')->default(true);
+            $table->boolean('posee_luz')->default(true);
+            $table->boolean('posee_aseo')->default(true);
+
+            $table->enum('condicion_vivienda', ['optima', 'regular', 'critica'])
+                ->default('regular');
+
+            $table->softDeletes();
+            $table->timestamps();
+
+            // Ãndice compuesto para el dashboard (viviendas crÃ­ticas por sede)
+            $table->index(['sede_id', 'condicion_vivienda'], 'idx_sede_condicion');
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('familias');
+    }
+};
+
+=== 2026_04_23_052021_create_habitantes_table.php ===
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+/**
+ * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ *  TABLA: habitantes
+ * â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+ *  DECISIÃ“N ARQUITECTÃ“NICA:
+ *  1. `softDeletes()`: un habitante dado de baja (mudanza,
+ *     fallecimiento) no debe borrarse. Sus registros histÃ³ricos
+ *     (pagos, beneficios) deben mantenerse.
+ *
+ *  2. `nivel_educativo` incluye 'tecnico' y 'postgrado': la
+ *     clasificaciÃ³n original era demasiado bÃ¡sica para un censo.
+ *
+ *  3. `cedula` es unique (y nullable): el Ã­ndice Ãºnico ya sirve
+ *     para buscar por cÃ©dula, por eso no se define un Ã­ndice
+ *     adicional.
+ *
+ *  4. Ãndice en `familia_id`: PostgreSQL no indexa las FK
+ *     automÃ¡ticamente; este Ã­ndice acelera la carga de
+ *     $familia->habitantes (hasMany).
+ * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ */
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('habitantes', function (Blueprint $table) {
+            $table->id();
+
+            $table->foreignId('familia_id')
+                ->constrained('familias')
+                ->onDelete('cascade');
+
+            $table->string('cedula', 15)->unique()->nullable();
+            $table->string('nombres', 100);
+            $table->string('apellidos', 100);
+            $table->date('fecha_nacimiento');
+            $table->enum('sexo', ['masculino', 'femenino', 'otro']);
+
+            // Indicadores sociales
+            $table->boolean('es_discapacitado')->default(false);
+            $table->string('tipo_discapacidad', 100)->nullable(); // Detalle si es_discapacitado = true
+            $table->string('enfermedad_cronica', 150)->nullable();
+
+            $table->enum('nivel_educativo', [
+                'ninguno',
+                'primaria',
+                'bachillerato',
+                'tecnico',
+                'universitario',
+                'postgrado',
+            ])->default('ninguno');
+
+            $table->softDeletes();
+            $table->timestamps();
+
+            // Ãndices al final
+            $table->index('familia_id');
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('habitantes');
+    }
+};
+
+=== 2026_04_23_052100_create_users_table.php ===
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+/**
+ * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ *  TABLA: users (+ password_reset_tokens, sessions)
+ * â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+ *  ORDEN DE DEPENDENCIAS:
+ *  Esta migraciÃ³n corre DESPUÃ‰S de `habitantes` porque `users`
+ *  tiene FK a `habitantes` (habitante_id). Ninguna tabla anterior
+ *  (sedes, comites, calles, familias, habitantes) depende de
+ *  `users`, asÃ­ que no hace falta una migraciÃ³n aparte para la FK.
+ *
+ *  DECISIONES ARQUITECTÃ“NICAS:
+ *  1. `rol` como ENUM controlado: evita valores inconsistentes
+ *     ('Admin', 'ADMIN', 'admin') que rompen la autorizaciÃ³n.
+ *
+ *  2. `softDeletes()`: los usuarios NUNCA se eliminan fÃ­sicamente,
+ *     para preservar la integridad con `auditorias`.
+ *
+ *  3. Campos de seguridad (bloqueo por intentos fallidos y OTP de
+ *     recuperaciÃ³n) y `cedula` viven aquÃ­ desde la creaciÃ³n.
+ *
+ *  4. `habitante_id` (nullable, set null): vincula al usuario con
+ *     su registro del censo. Es opcional porque un admin tÃ©cnico
+ *     puede no estar en el padrÃ³n comunal.
+ *
+ *  5. (oct-2026) El ENUM de `rol` ya no incluye 'operador': el rol se
+ *     eliminÃ³ del sistema (Documento Maestro 14.7-E y 14.10). La base
+ *     de datos en uso se alinea con el script SQL de la Fase 2; esta
+ *     migraciÃ³n deja la instalaciÃ³n limpia con el esquema final.
+ * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ */
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('users', function (Blueprint $table) {
+            $table->id();
+            $table->string('name', 100);
+            $table->string('cedula', 20)->nullable()->unique();
+            $table->string('email', 150)->unique();
+            $table->timestamp('email_verified_at')->nullable();
+            $table->string('password');
+
+            // â”€â”€ Bloqueo por intentos fallidos â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            $table->unsignedTinyInteger('failed_attempts')->default(0);
+            $table->boolean('is_locked')->default(false);
+            $table->timestamp('locked_at')->nullable();
+
+            // â”€â”€ OTP para recuperaciÃ³n y desbloqueo â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            $table->string('otp_code', 6)->nullable();
+            $table->timestamp('otp_expires_at')->nullable();
+
+            // ENUM estricto: evita valores arbitrarios como 'superAdmin'
+            $table->enum('rol', ['admin', 'vocero', 'usuario'])
+                ->default('usuario');
+
+            // VÃ­nculo opcional con el censo
+            $table->foreignId('habitante_id')
+                ->nullable()
+                ->constrained('habitantes')
+                ->onDelete('set null');
+
+            $table->rememberToken();
+            $table->softDeletes(); // deleted_at: desactivaciÃ³n lÃ³gica, no fÃ­sica
+            $table->timestamps();
+        });
+
+        Schema::create('password_reset_tokens', function (Blueprint $table) {
+            $table->string('email')->primary();
+            $table->string('token');
+            $table->timestamp('created_at')->nullable();
+        });
+
+        Schema::create('sessions', function (Blueprint $table) {
+            $table->string('id')->primary();
+            $table->foreignId('user_id')->nullable()->index();
+            $table->string('ip_address', 45)->nullable();
+            $table->text('user_agent')->nullable();
+            $table->longText('payload');
+            $table->integer('last_activity')->index();
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('sessions');
+        Schema::dropIfExists('password_reset_tokens');
+        Schema::dropIfExists('users');
+    }
+};
+
+=== 2026_04_23_052410_create_voceros_table.php ===
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+/**
+ * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ *  TABLA: voceros
+ * â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+ *  DECISIÃ“N ARQUITECTÃ“NICA â€” CorrecciÃ³n crÃ­tica:
+ *
+ *  PROBLEMA ORIGINAL: `comite` era un string libre nullable.
+ *  Esto permitÃ­a "Salud", "salud", "SALUD" como valores distintos,
+ *  haciendo imposible agrupar voceros por comitÃ© en reportes.
+ *
+ *  SOLUCIÃ“N: Se reemplaza `comite` (string) por `comite_id` (FK
+ *  a la tabla `comites`). Ahora hay una Ãºnica fuente de verdad
+ *  para los nombres de comitÃ©s. Esto es el principio DRY
+ *  (Don't Repeat Yourself) aplicado al diseÃ±o de base de datos.
+ *
+ *  TAMBIÃ‰N: Se agrega `fecha_fin` para registrar cuÃ¡ndo terminÃ³
+ *  el mandato, sin eliminar el registro histÃ³rico del vocero.
+ *  Un vocero puede tener mÃºltiples mandatos a lo largo del tiempo.
+ * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ */
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('voceros', function (Blueprint $table) {
+            $table->id();
+
+            $table->foreignId('habitante_id')
+                ->constrained('habitantes')
+                ->onDelete('cascade');
+
+            $table->foreignId('sede_id')
+                ->constrained('sedes')
+                  ->onDelete('restrict'); // No permitir eliminar sede con voceros activos
+
+            // FK a comites â€” reemplaza el string libre del original
+            $table->foreignId('comite_id')
+                ->nullable()
+                ->constrained('comites')
+                ->onDelete('set null');
+
+            $table->string('unidad_comunal', 150);
+            $table->date('fecha_eleccion');
+            $table->date('fecha_fin')->nullable(); // Fin del mandato (si ya culminÃ³)
+            $table->boolean('esta_activo')->default(true);
+
+            $table->timestamps();
+
+            // Ãndice: consultas frecuentes de voceros activos por sede
+            $table->index(['sede_id', 'esta_activo'], 'idx_sede_activo');
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('voceros');
+    }
+};
+
+=== 2026_04_23_052533_create_proyectos_table.php ===
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+/**
+ * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ *  TABLA: proyectos
+ * â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+ *  DECISIÃ“N ARQUITECTÃ“NICA:
+ *  1. `comite` (string libre) â†’ `comite_id` (FK): misma correcciÃ³n
+ *     que en voceros. Consistencia en todo el esquema.
+ *
+ *  2. Se agrega `user_id` (FK a users): permite saber quÃ© operador
+ *     registrÃ³ el proyecto. Fundamental para la auditorÃ­a y para
+ *     responder "Â¿quiÃ©n cargÃ³ este proyecto?" en la tesis.
+ *
+ *  3. Se agrega `fecha_fin` para registrar el cierre del proyecto.
+ *     Con fecha_inicio + fecha_fin se puede calcular la duraciÃ³n
+ *     real del proyecto vs. lo planificado (indicador de gestiÃ³n).
+ *
+ *  4. Ãndice en `estatus`: las consultas del dashboard filtran
+ *     frecuentemente por estatus ('en_ejecucion', 'paralizado').
+ * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ */
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('proyectos', function (Blueprint $table) {
+            $table->id();
+
+            $table->foreignId('sede_id')
+                ->nullable()
+                ->constrained('sedes')
+                ->onDelete('set null');
+
+            // FK a comites â€” reemplaza string libre
+            $table->foreignId('comite_id')
+                ->nullable()
+                ->constrained('comites')
+                ->onDelete('set null');
+
+            // QuiÃ©n registrÃ³ el proyecto
+            $table->foreignId('user_id')
+                ->nullable()
+                ->constrained('users')
+                ->onDelete('set null');
+
+            $table->string('nombre_proyecto', 200);
+            $table->text('objetivo');
+
+            $table->decimal('monto_aprobado', 15, 2)->default(0.00);
+            $table->enum('fuente_financiamiento', [
+                'CFG',
+                'Alcaldia',
+                'Gobernacion',
+                'Autogestion',
+            ]);
+
+            $table->enum('estatus', [
+                'presentado',
+                'aprobado',
+                'en_ejecucion',
+                'finalizado',
+                'paralizado',
+            ])->default('presentado');
+
+            $table->date('fecha_inicio')->nullable();
+            $table->date('fecha_fin')->nullable(); // aÃ±adido: cierre del proyecto
+
+            $table->softDeletes();
+            $table->timestamps();
+
+            $table->index('estatus'); // Optimiza filtros del dashboard
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('proyectos');
+    }
+};
+
+=== 2026_04_23_052654_create_beneficios_table.php ===
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+/**
+ * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ *  TABLA: beneficios
+ * â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+ *  DECISIÃ“N ARQUITECTÃ“NICA:
+ *  Se agrega `user_id` para trazabilidad: Â¿quÃ© operador registrÃ³
+ *  la entrega de este beneficio? En sistemas de gestiÃ³n pÃºblica,
+ *  la trazabilidad de quiÃ©n entregÃ³ quÃ© y cuÃ¡ndo es un requisito
+ *  de transparencia. Esto refuerza el mÃ³dulo de auditorÃ­a.
+ *
+ *  Se agrega Ã­ndice compuesto (familia_id, fecha_entrega):
+ *  La consulta "todos los beneficios de la familia X, ordenados
+ *  por fecha" es el patrÃ³n mÃ¡s frecuente en la vista de perfil
+ *  de familia. El Ã­ndice compuesto hace esta query Ã³ptima.
+ * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ */
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('beneficios', function (Blueprint $table) {
+            $table->id();
+            $table->foreignId('familia_id')
+                  ->constrained('familias')
+                  ->onDelete('cascade');
+
+            // QuiÃ©n registrÃ³ la entrega del beneficio
+            $table->foreignId('user_id')
+                  ->nullable()
+                  ->constrained('users')
+                  ->onDelete('set null');
+
+            $table->string('nombre_beneficio', 200);
+            $table->date('fecha_entrega')->nullable();
+            $table->text('observaciones')->nullable();
+            $table->timestamps();
+            $table->softDeletes();
+
+            // Optimiza "historial de beneficios por familia ordenado por fecha"
+            $table->index(['familia_id', 'fecha_entrega'], 'idx_familia_fecha');
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('beneficios');
+    }
+};
+
+=== 2026_04_23_052837_create_cartografia_table.php ===
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+/**
+ * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ *  TABLA: cartografia
+ * â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+ *  DECISIÃ“N ARQUITECTÃ“NICA:
+ *  Se agrega `sede_id` FK: cada punto cartogrÃ¡fico pertenece a
+ *  una sede, permitiendo filtrar el mapa por sede en el frontend.
+ *
+ *  NOTA TÃ‰CNICA sobre precisiÃ³n de coordenadas:
+ *  decimal(10,8) para latitud y decimal(11,8) para longitud.
+ *  Con 8 decimales, la precisiÃ³n es Â±1.1mm en el ecuador.
+ *  MÃ¡s que suficiente para cartografÃ­a comunal.
+ *  Si en el futuro se necesitan polÃ­gonos (no solo puntos),
+ *  se migrarÃ­a a tipo GEOMETRY de MySQL â€” decisiÃ³n Just-in-Time.
+ * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ */
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('cartografia', function (Blueprint $table) {
+            $table->id();
+
+            $table->foreignId('sede_id')
+                ->nullable()
+                ->constrained('sedes')
+                ->onDelete('set null');
+
+            $table->string('nombre_sector', 150);
+            $table->decimal('latitud', 10, 8);
+            $table->decimal('longitud', 11, 8);
+            $table->text('descripcion_limites')->nullable();
+
+            $table->timestamps();
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('cartografia');
+    }
+};
+
+=== 2026_04_23_052936_create_historia_comunal_table.php ===
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+/**
+ * âš ï¸ MÃ“DULO FUERA DE ALCANCE â€” v2.0
+ * Esta migraciÃ³n crea la tabla para el mÃ³dulo Historia Comunal.
+ * El mÃ³dulo fue planificado pero excluido del alcance de esta
+ * versiÃ³n por priorizaciÃ³n. La tabla existe en BD pero no tiene
+ * CRUD implementado. Candidato para versiÃ³n futura.
+ */
+
+/**
+ * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ *  TABLA: historia_comunal
+ * â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+ *  DECISIÃ“N ARQUITECTÃ“NICA:
+ *  Se reemplaza `autor` (string libre) por `user_id` (FK a users).
+ *  Un string libre "autor" es ambiguo: Â¿es el nombre del redactor
+ *  o del historiador original? Con la FK, sabemos exactamente
+ *  quÃ© usuario del sistema registrÃ³ el hecho, preservando la
+ *  cadena de responsabilidad.
+ *
+ *  Se mantiene `autor` como campo libre ADICIONAL para registrar
+ *  el nombre de la fuente histÃ³rica original (Ej: "Testimonio de
+ *  la Sra. Carmen DÃ­az, fundadora del sector") â€” distinto del
+ *  usuario que lo digitalizÃ³.
+ * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ */
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('historia_comunal', function (Blueprint $table) {
+            $table->id();
+
+            // QuiÃ©n digitalizÃ³ este registro en el sistema
+            $table->foreignId('user_id')
+                ->nullable()
+                ->constrained('users')
+                ->onDelete('set null');
+
+            $table->string('titulo', 255);
+            $table->text('descripcion');
+            $table->year('anio_suceso')->nullable();
+
+            // Fuente histÃ³rica original (puede ser distinta del user que digitalizÃ³)
+            $table->string('fuente_original', 200)->nullable();
+
+            $table->timestamps();
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('historia_comunal');
+    }
+};
+
+=== 2026_04_23_053111_create_auditorias_table.php ===
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+/**
+ * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ *  TABLA: auditorias
+ * â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+ *  DECISIÃ“N ARQUITECTÃ“NICA â€” CorrecciÃ³n de tipo de columna:
+ *
+ *  PROBLEMA ORIGINAL: `valor_anterior` y `valor_nuevo` eran TEXT.
+ *  Almacenar JSON como texto plano impide consultas como:
+ *    WHERE valor_nuevo->>'$.rol' = 'admin'
+ *  MySQL no puede indexar ni consultar dentro de un TEXT.
+ *
+ *  SOLUCIÃ“N: Tipo JSON nativo de MySQL 5.7+/MariaDB 10.2+.
+ *  Con JSON nativo, se pueden hacer queries como:
+ *    SELECT * FROM auditorias WHERE valor_nuevo->'$.rol' = '"admin"'
+ *  Esto es Ãºtil para auditar "Â¿cuÃ¡ndo le cambiaron el rol a este user?"
+ *
+ *  TAMBIÃ‰N: Se agrega `user_agent` para capturar el navegador/dispositivo
+ *  desde el cual se realizÃ³ la acciÃ³n â€” dato forense valioso.
+ *
+ *  IMPORTANTE: Esta tabla NO tiene softDeletes ni updated_at por diseÃ±o.
+ *  Los registros de auditorÃ­a son INMUTABLES. Nunca se editan ni eliminan.
+ *  PatrÃ³n: Append-Only Log (registro de solo escritura).
+ * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ */
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('auditorias', function (Blueprint $table) {
+            $table->id();
+
+            $table->foreignId('user_id')
+                ->nullable()
+                ->constrained('users')
+                ->onDelete('set null');
+
+            $table->string('accion', 100);        // 'login_exitoso', 'habitante_creado', etc.
+            $table->string('tabla_afectada', 100);
+            $table->unsignedBigInteger('registro_id');
+
+            $table->ipAddress('direccion_ip')->nullable();
+            $table->string('user_agent', 500)->nullable(); // aÃ±adido
+
+            // JSON nativo: permite queries dentro del JSON
+            $table->json('valor_anterior')->nullable();
+            $table->json('valor_nuevo')->nullable();
+
+            // Solo created_at: los logs son inmutables, no se actualizan
+            $table->timestamp('created_at')->useCurrent();
+
+            // Ãndices para consultas de auditorÃ­a frecuentes
+            $table->index(['tabla_afectada', 'registro_id'], 'idx_tabla_registro');
+            $table->index('user_id');
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('auditorias');
+    }
+};
+
+=== 2026_04_23_053254_create_noticias_table.php ===
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+/**
+ * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ *  TABLA: noticias
+ * â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+ *  Esta migraciÃ³n define el esquema FINAL de `noticias`, tal como
+ *  existe en la base de datos en uso. Antes de esta versiÃ³n, el
+ *  archivo creaba por error la tabla `organizaciones`, y `noticias`
+ *  se habÃ­a creado con cambios directos en la BD; eso impedÃ­a una
+ *  instalaciÃ³n limpia. Todo cambio de esquema se hace SIEMPRE aquÃ­
+ *  (migraciones), nunca directo en la BD.
+ *
+ *  - user_id: autor de la noticia. Si el usuario se da de baja, la
+ *    noticia se conserva (set null).
+ *  - publicado / published_at: el controlador rellena published_at
+ *    cuando `publicado` pasa de false a true.
+ *  - softDeletes: preserva el historial.
+ * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ */
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('noticias', function (Blueprint $table) {
+            $table->id();
+
+            $table->foreignId('user_id')
+                ->nullable()
+                ->constrained('users')
+                ->onDelete('set null');
+
+            $table->string('titulo', 255);
+            $table->text('contenido');
+
+            $table->boolean('publicado')->default(true);
+            $table->timestamp('published_at')->nullable();
+
+            $table->softDeletes();
+            $table->timestamps();
+
+            // Ãndices al final (convenciÃ³n PostgreSQL del proyecto)
+            $table->index('publicado');
+            $table->index('published_at');
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('noticias');
+    }
+};
+
+=== 2026_04_23_053256_create_organizaciones_table.php ===
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+/**
+ * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ *  TABLA: organizaciones
+ * â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+ *  Esquema final que usa el cÃ³digo actual de SIGET. Es la Ãºnica
+ *  migraciÃ³n que crea esta tabla (ya no existe una versiÃ³n previa
+ *  que haya que reemplazar con dropIfExists).
+ * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ */
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('organizaciones', function (Blueprint $table) {
+            $table->id();
+
+            $table->string('nombre', 150);
+
+            $table->enum('tipo_servicio', [
+                'agua',
+                'electricidad',
+                'gas',
+                'salud',
+                'educacion',
+                'seguridad',
+                'transporte',
+                'otro',
+            ])->default('otro');
+
+            // TelÃ©fono, WhatsApp o email â€” el frontend detecta el tipo automÃ¡ticamente
+            $table->string('contacto', 100)->nullable();
+
+            $table->text('descripcion')->nullable();
+
+            // true = visible en el directorio pÃºblico, false = dado de baja
+            $table->boolean('estatus')->default(true);
+
+            $table->timestamps();
+
+            // SoftDeletes: rellena deleted_at en lugar de eliminar fÃ­sicamente
+            $table->softDeletes();
+
+            // Ãndices para los filtros mÃ¡s frecuentes del index()
+            $table->index('tipo_servicio');
+            $table->index('estatus');
+            $table->index('deleted_at');
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('organizaciones');
+    }
+};
+
+=== 2026_04_23_053357_create_eventos_calendario_table.php ===
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+/**
+ * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ *  TABLA: eventos_calendario
+ * â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+ *  DECISIÃ“N ARQUITECTÃ“NICA:
+ *  1. Misma correcciÃ³n que noticias: `onDelete('set null')` en lugar
+ *     de cascade. Un evento comunal no debe desaparecer si el usuario
+ *     que lo creÃ³ es dado de baja.
+ *
+ *  2. Se agrega `hora_inicio` y `hora_fin` opcionales: un evento
+ *     "Asamblea de voceros" necesita hora, no solo fecha. Esto
+ *     permite mostrar eventos con duraciÃ³n real en el calendario.
+ *
+ *  3. Se agrega Ã­ndice en `fecha`: el calendario cargarÃ¡ eventos
+ *     frecuentemente filtrando por mes. Sin Ã­ndice, cada cambio
+ *     de mes harÃ­a full-table-scan.
+ * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ */
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('eventos_calendario', function (Blueprint $table) {
+            $table->id();
+
+            $table->foreignId('user_id')
+                ->nullable()
+                ->constrained('users')
+                  ->onDelete('set null'); // corregido: era cascade
+
+            $table->string('titulo', 255);
+            $table->date('fecha');
+            $table->time('hora_inicio')->nullable(); // aÃ±adido
+            $table->time('hora_fin')->nullable();    // aÃ±adido
+            $table->text('descripcion')->nullable();
+            $table->string('color_etiqueta', 20)->default('#3b82f6');
+
+            $table->timestamps();
+
+            $table->index('fecha'); // Optimiza "eventos del mes X"
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('eventos_calendario');
+    }
+};
+
+=== 2026_04_23_053455_create_sugerencias_table.php ===
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+/**
+ * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ *  TABLA: sugerencias
+ * â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+ *  DECISIONES ARQUITECTÃ“NICAS:
+ *  1. `onDelete('set null')`: si el usuario que enviÃ³ la sugerencia
+ *     se da de baja, la sugerencia se conserva.
+ *
+ *  2. `revisada_por` (FK a users): trazabilidad de QUIÃ‰N revisÃ³.
+ *
+ *  3. `respuesta`: respuesta formal del operador dentro del sistema.
+ *
+ *  4. `categoria`, `prioridad` y `softDeletes` antes se agregaban
+ *     con la migraciÃ³n `add_campos_to_sugerencias_table`; se
+ *     fusionaron aquÃ­ para la instalaciÃ³n limpia.
+ *
+ *  PatrÃ³n: Workflow de doble actor (quien envÃ­a / quien revisa).
+ * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ */
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('sugerencias', function (Blueprint $table) {
+            $table->id();
+
+            // Quien enviÃ³ la sugerencia
+            $table->foreignId('user_id')
+                ->nullable()
+                ->constrained('users')
+                ->onDelete('set null');
+
+            // Quien la revisÃ³ (admin u operador)
+            $table->foreignId('revisada_por')
+                ->nullable()
+                ->constrained('users')
+                ->onDelete('set null');
+
+            $table->text('mensaje');
+
+            $table->enum('categoria', [
+                'mejora',
+                'queja',
+                'consulta',
+                'emergencia',
+            ])->default('consulta');
+
+            $table->enum('prioridad', [
+                'baja',
+                'media',
+                'alta',
+            ])->default('media');
+
+            $table->text('respuesta')->nullable(); // Respuesta formal del operador
+
+            $table->boolean('revisada')->default(false);
+            $table->timestamp('revisada_en')->nullable();
+
+            $table->softDeletes();
+            $table->timestamps();
+
+            // Ãndices al final
+            $table->index('revisada');
+            $table->index('categoria');
+            $table->index('prioridad');
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('sugerencias');
+    }
+};
+
+=== 2026_04_23_141944_create_configuracion_tarjetas_table.php ===
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\DB;
+
+/**
+ * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ *  TABLA: configuracion_tarjetas
+ * â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+ *  DECISIÃ“N ARQUITECTÃ“NICA â€” Seed dentro de la migraciÃ³n:
+ *
+ *  El sistema original insertaba los datos por defecto directamente
+ *  en el up() con DB::table()->insert(). Esta prÃ¡ctica es aceptable
+ *  SOLO para datos de configuraciÃ³n que son parte estructural del
+ *  sistema (no datos de prueba). Las tarjetas del dashboard son
+ *  configuraciÃ³n base sin la cual la aplicaciÃ³n no funciona.
+ *
+ *  DISTINCIÃ“N IMPORTANTE para la tesis:
+ *  - Seeders (database/seeders/): datos de prueba o datos iniciales
+ *    opcionales. Se ejecutan con `php artisan db:seed`.
+ *  - Datos en migraciones: configuraciÃ³n estructural obligatoria.
+ *    Se ejecutan automÃ¡ticamente con `php artisan migrate`.
+ *  Las tarjetas del dashboard caen en la segunda categorÃ­a.
+ *
+ *  MEJORAS respecto al original:
+ *  1. Se agrega `visible` (boolean): permite ocultar una tarjeta
+ *     del dashboard sin eliminarla. Ãštil si una funcionalidad
+ *     estÃ¡ deshabilitada temporalmente (ej: mÃ³dulo de pagos en
+ *     mantenimiento â†’ ocultar tarjeta de total_pagos).
+ *
+ *  2. Se agrega `orden` (integer): define el orden visual de las
+ *     tarjetas en el dashboard. Sin este campo, el frontend debe
+ *     hardcodear el orden en el componente React, acoplando la
+ *     presentaciÃ³n al cÃ³digo. Con este campo, el admin puede
+ *     reordenar tarjetas desde la interfaz.
+ *     PatrÃ³n: Configuration over Code (separar config de lÃ³gica).
+ *
+ *  3. Se agrega `icono` (string): nombre del Ã­cono a mostrar
+ *     en cada tarjeta (ej: 'users', 'home', 'heart').
+ *     El frontend (React + lucide-react) renderiza el Ã­cono por
+ *     nombre. Cambiar el Ã­cono es config, no un deploy de cÃ³digo.
+ * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ */
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('configuracion_tarjetas', function (Blueprint $table) {
+            $table->id();
+
+            // Identificador Ãºnico de la tarjeta â€” nunca cambia
+            $table->string('clave', 100)->unique();
+
+            // Texto personalizable por el admin desde la interfaz
+            $table->string('titulo_personalizado', 255)->nullable();
+            $table->string('subtitulo_personalizado', 255)->nullable();
+
+            // PresentaciÃ³n visual
+            $table->string('icono', 50)->nullable();    // Nombre del Ã­cono (lucide-react)
+            $table->unsignedTinyInteger('orden')->default(0); // Orden en el dashboard
+            $table->boolean('visible')->default(true);  // Mostrar/ocultar sin eliminar
+
+            $table->timestamps();
+        });
+
+        // Datos estructurales obligatorios del sistema
+        // orden: define la posiciÃ³n visual de izquierda a derecha, fila por fila
+        DB::table('configuracion_tarjetas')->insert([
+            [
+                'clave'                   => 'total_familias',
+                'titulo_personalizado'    => null,
+                'subtitulo_personalizado' => null,
+                'icono'                   => 'home',
+                'orden'                   => 1,
+                'visible'                 => true,
+                'created_at'              => now(),
+                'updated_at'              => now(),
+            ],
+            [
+                'clave'                   => 'total_habitantes',
+                'titulo_personalizado'    => null,
+                'subtitulo_personalizado' => null,
+                'icono'                   => 'users',
+                'orden'                   => 2,
+                'visible'                 => true,
+                'created_at'              => now(),
+                'updated_at'              => now(),
+            ],
+            [
+                'clave'                   => 'viviendas_criticas',
+                'titulo_personalizado'    => null,
+                'subtitulo_personalizado' => null,
+                'icono'                   => 'alert-triangle',
+                'orden'                   => 3,
+                'visible'                 => true,
+                'created_at'              => now(),
+                'updated_at'              => now(),
+            ],
+            [
+                'clave'                   => 'con_discapacidad',
+                'titulo_personalizado'    => null,
+                'subtitulo_personalizado' => null,
+                'icono'                   => 'heart',
+                'orden'                   => 4,
+                'visible'                 => true,
+                'created_at'              => now(),
+                'updated_at'              => now(),
+            ],
+            [
+                'clave'                   => 'total_voceros',
+                'titulo_personalizado'    => null,
+                'subtitulo_personalizado' => null,
+                'icono'                   => 'user-check',
+                'orden'                   => 5,
+                'visible'                 => true,
+                'created_at'              => now(),
+                'updated_at'              => now(),
+            ],
+            [
+                'clave'                   => 'total_proyectos',
+                'titulo_personalizado'    => null,
+                'subtitulo_personalizado' => null,
+                'icono'                   => 'folder',
+                'orden'                   => 6,
+                'visible'                 => true,
+                'created_at'              => now(),
+                'updated_at'              => now(),
+            ],
+            [
+                'clave'                   => 'total_beneficios',
+                'titulo_personalizado'    => null,
+                'subtitulo_personalizado' => null,
+                'icono'                   => 'gift',
+                'orden'                   => 7,
+                'visible'                 => true,
+                'created_at'              => now(),
+                'updated_at'              => now(),
+            ],
+        ]);
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('configuracion_tarjetas');
+    }
+};
+
+=== 2026_04_25_041022_create_personal_access_tokens_table.php ===
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    /**
+     * Run the migrations.
+     */
+    public function up(): void
+    {
+        Schema::create('personal_access_tokens', function (Blueprint $table) {
+            $table->id();
+            $table->morphs('tokenable');
+            $table->text('name');
+            $table->string('token', 64)->unique();
+            $table->text('abilities')->nullable();
+            $table->timestamp('last_used_at')->nullable();
+            $table->timestamp('expires_at')->nullable()->index();
+            $table->timestamps();
+        });
+    }
+
+    /**
+     * Reverse the migrations.
+     */
+    public function down(): void
+    {
+        Schema::dropIfExists('personal_access_tokens');
+    }
+};
+
+=== 2026_05_13_053000_create_cuentas_pago_table.php ===
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+/**
+ * MigraciÃ³n â€” create_cuentas_pago_table
+ *
+ * Cuentas de destino para los pagos QR. El admin/operador gestiona
+ * MÃšLTIPLES cuentas (ej. "Gas", "Cuota mensual", "Aseo urbano"); el
+ * ciudadano elige a cuÃ¡l corresponde su pago.
+ *
+ * CAMBIO (sept-2026, correcciÃ³n 2 del profesor: proceso de pago) â€”
+ * Se agrega `metodo` y `numero_cuenta`. Antes solo existÃ­a pago mÃ³vil
+ * (implÃ­cito: el QR y el formulario decÃ­an "Pago MÃ³vil" a secas).
+ * Ahora una cuenta declara explÃ­citamente su mÃ©todo:
+ *   - pago_movil   â†’ requiere telefono
+ *   - transferenciaâ†’ requiere numero_cuenta
+ * Para aceptar ambos mÃ©todos en un mismo servicio, el admin crea dos
+ * cuentas con el mismo nombre_servicio y distinto metodo â€” no hace
+ * falta una tabla de mÃ©todos aparte, y agregar un tercer mÃ©todo en el
+ * futuro (ver 4.4) no vuelve a tocar el esquema: basta con sumarlo a
+ * la constante CuentaPago::METODOS y validar el campo que use.
+ *
+ * `telefono` pasa a NULLABLE (ya no aplica a transferencia).
+ *
+ * CorrecciÃ³n del profesor (sept-2026): una sola migraciÃ³n `create`
+ * por tabla, con el esquema final â€” sin migraciones de parche.
+ * Esta migraciÃ³n reemplaza directamente a la versiÃ³n anterior (sin
+ * metodo/numero_cuenta); ver nota de alineaciÃ³n de BD real al final
+ * de este archivo, en el mensaje de entrega.
+ *
+ * ORDEN: debe correr ANTES que `create_pagos_qr_table` (FK).
+ * Orden de Blueprint: columnas â†’ softDeletes â†’ timestamps â†’ Ã­ndices.
+ */
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('cuentas_pago', function (Blueprint $table) {
+            $table->id();
+
+            $table->string('nombre_servicio', 100);   // Ej: "Gas", "Cuota mensual"
+
+            // MÃ©todo de pago que acepta esta cuenta.
+            $table->string('metodo', 20)->default('pago_movil');
+
+            $table->string('banco', 100);              // Ej: "Banco de Venezuela (0102)"
+            $table->string('telefono', 20)->nullable();      // Pago mÃ³vil
+            $table->string('numero_cuenta', 20)->nullable(); // Transferencia
+            $table->string('cedula_rif', 20);            // Ej: "V-12345678"
+            $table->string('titular', 150);              // Ej: "Consejo Comunal..."
+            $table->text('descripcion')->nullable();     // Nota opcional para el ciudadano
+            $table->boolean('activa')->default(true);    // Toggle activar/desactivar sin borrar
+
+            $table->softDeletes();
+            $table->timestamps();
+
+            $table->index('activa', 'idx_cuentas_pago_activa');
+            $table->index('metodo', 'idx_cuentas_pago_metodo');
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('cuentas_pago');
+    }
+};
+
+=== 2026_05_13_053022_create_pagos_qr_table.php ===
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+/**
+ * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ *  TABLA: pagos_qr â€” esquema final
+ * â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+ *  Dos flujos conviven en la misma tabla:
+ *    - admin/operador: habitante_id poblado, user_id null
+ *    - Portal Ciudadano (rol usuario): user_id poblado,
+ *      habitante_id null
+ *
+ *  CAMBIO (sept-2026, correcciÃ³n 2 del profesor: proceso de pago) â€”
+ *  Se agrega `metodo_pago` (con quÃ© mÃ©todo se realizÃ³ ESTE pago,
+ *  copiado del mÃ©todo de la cuenta al momento de pagar â€” asÃ­ el
+ *  histÃ³rico no cambia si luego el admin edita la cuenta) y
+ *  `banco_origen` (desde quÃ© banco pagÃ³ el ciudadano, para que el
+ *  operador concilie el comprobante contra el extracto). Todos los
+ *  pagos previos quedan como 'pago_movil' (default), que era el
+ *  Ãºnico mÃ©todo que existÃ­a hasta ahora.
+ *
+ *  DEPENDENCIAS: habitantes, familias, organizaciones, users y
+ *  cuentas_pago deben existir antes (por eso cuentas_pago tiene un
+ *  timestamp anterior a esta migraciÃ³n).
+ * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ */
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('pagos_qr', function (Blueprint $table) {
+            $table->id();
+
+            // â”€â”€ QuiÃ©n paga â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            $table->foreignId('habitante_id')
+                ->nullable()
+                ->constrained('habitantes')
+                ->onDelete('restrict');         // No borrar habitante con pagos
+
+            $table->foreignId('user_id')        // Flujo Portal Ciudadano
+                ->nullable()
+                ->constrained('users')
+                ->nullOnDelete();
+
+            $table->foreignId('familia_id')     // NÃºcleo familiar
+                ->nullable()
+                ->constrained('familias')
+                ->nullOnDelete();
+
+            // â”€â”€ QuÃ© servicio se paga â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            $table->foreignId('organizacion_id')
+                ->nullable()
+                ->constrained('organizaciones')
+                ->nullOnDelete();
+
+            $table->foreignId('cuenta_pago_id') // Cuenta elegida al pagar
+                ->nullable()
+                ->constrained('cuentas_pago')
+                ->nullOnDelete();
+
+            // â”€â”€ QuiÃ©n verificÃ³ â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            $table->foreignId('verificado_por')
+                ->nullable()
+                ->constrained('users')
+                ->nullOnDelete();
+
+            // â”€â”€ Datos del pago â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            $table->string('referencia_bancaria', 100)->unique();
+            $table->decimal('monto', 12, 2);
+            $table->string('concepto_pago', 200);
+
+            // MÃ©todo usado en ESTE pago (copiado de la cuenta al pagar).
+            $table->string('metodo_pago', 20)->default('pago_movil');
+
+            // Banco desde el que el ciudadano pagÃ³ (ayuda a conciliar).
+            $table->string('banco_origen', 100)->nullable();
+
+            // Ruta relativa en storage: 'comprobantes/2026/05/abc.jpg'
+            $table->string('comprobante_path', 500)->nullable();
+
+            // â”€â”€ MÃ¡quina de estados â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            $table->enum('estado', ['pendiente', 'verificado', 'rechazado'])
+                ->default('pendiente');
+
+            $table->string('motivo_rechazo', 255)->nullable();
+
+            $table->timestamp('fecha_pago');
+            $table->timestamp('fecha_verificacion')->nullable();
+
+            $table->softDeletes();
+            $table->timestamps();
+
+            // â”€â”€ Ãndices al final â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+            $table->index(['estado', 'fecha_pago'], 'idx_estado_fecha');
+            $table->index('familia_id',             'idx_pagos_familia');
+            $table->index('user_id');
+            $table->index('cuenta_pago_id',         'idx_pagos_cuenta_pago');
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('pagos_qr');
+    }
+};
+
+=== 2026_05_26_142325_create_comunicados_table.php ===
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('comunicados', function (Blueprint $table) {
+            $table->id();
+
+            // AuditorÃ­a: quiÃ©n redactÃ³ el comunicado
+            $table->foreignId('user_id')
+                  ->constrained('users')
+                  ->restrictOnDelete();
+
+            // Campos del comunicado
+            $table->string('destinatario', 200);          // "AlcaldÃ­a del Municipio X" / "Empresa Y"
+            $table->string('cargo_destinatario', 150)->nullable(); // "Alcalde" / "Gerente General"
+            $table->string('asunto', 300);
+            $table->text('cuerpo');                        // Cuerpo redactado en el editor
+
+            // Estado del documento
+            $table->enum('estado', ['borrador', 'enviado', 'archivado'])->default('borrador');
+
+            // NÃºmero correlativo para el membrete (auto-calculado en el servicio)
+            $table->string('numero_oficio', 30)->nullable(); // Ej: "CC-2024-0001"
+
+            // â”€â”€ Columnas de control temporal (DEBEN ir antes de los Ã­ndices) â”€â”€
+            $table->softDeletes(); // deleted_at â€” columna fÃ­sica primero
+            $table->timestamps();  // created_at / updated_at
+
+            // â”€â”€ Ãndices (solo despuÃ©s de que todas las columnas existen) â”€â”€â”€â”€â”€â”€
+            $table->index(['user_id', 'created_at']);
+            $table->index('estado');
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('comunicados');
+    }
+};
+
+=== 2026_09_15_000001_create_encuestas_table.php ===
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+/**
+ * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ *  TABLA: encuestas
+ * â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+ *  CampaÃ±a de censo territorial (entrega de gas, bolsas CLAP, etc.).
+ *  `tipo` es string validado en la app (constante Encuesta::TIPOS),
+ *  no enum de PostgreSQL: agregar un tipo no vuelve a tocar el esquema.
+ *
+ *  Orden Blueprint (regla 14): columnas â†’ softDeletes â†’ timestamps
+ *  â†’ Ã­ndices.
+ * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ */
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('encuestas', function (Blueprint $table) {
+            $table->id();
+            $table->string('nombre', 150);
+            $table->string('tipo', 30); // bombona_gas | bolsa_clap | otro
+            $table->text('descripcion')->nullable();
+            $table->date('fecha_inicio')->nullable();
+            $table->date('fecha_cierre')->nullable();
+            $table->boolean('activa')->default(true);
+
+            $table->softDeletes();
+            $table->timestamps();
+
+            $table->index('tipo');
+            $table->index('activa');
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('encuestas');
+    }
+};
+
+=== 2026_09_15_000002_create_encuesta_respuestas_table.php ===
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+/**
+ * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ *  TABLA: encuesta_respuestas
+ * â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+ *  Una fila = una entrega registrada para una familia dentro de una
+ *  encuesta. Depende de `encuestas` y `familias` (timestamps previos).
+ *
+ *  FK con restrict: ni la encuesta ni la familia se borran
+ *  fÃ­sicamente (ambas usan SoftDeletes), asÃ­ que el historial que
+ *  consume el estimador de consumo no se pierde.
+ *
+ *  Ãndices: PostgreSQL no indexa las FK automÃ¡ticamente. Se agregan
+ *  el compuesto por familia (estimador de consumo) y uno por
+ *  encuesta (listado de entregas de una campaÃ±a).
+ *
+ *  La no duplicaciÃ³n (misma familia + encuesta + fecha) se valida en
+ *  los FormRequest ignorando registros dados de baja, no con un
+ *  unique de BD, porque el soft delete no libera esa combinaciÃ³n.
+ * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ */
+return new class extends Migration
+{
+    public function up(): void
+    {
+        Schema::create('encuesta_respuestas', function (Blueprint $table) {
+            $table->id();
+            $table->foreignId('encuesta_id')->constrained('encuestas')->restrictOnDelete();
+            $table->foreignId('familia_id')->constrained('familias')->restrictOnDelete();
+            $table->integer('cantidad');
+            $table->date('fecha_entrega');
+            $table->text('observaciones')->nullable();
+
+            $table->softDeletes();
+            $table->timestamps();
+
+            $table->index(['familia_id', 'encuesta_id', 'fecha_entrega']);
+            $table->index(['encuesta_id', 'fecha_entrega']);
+        });
+    }
+
+    public function down(): void
+    {
+        Schema::dropIfExists('encuesta_respuestas');
+    }
+};

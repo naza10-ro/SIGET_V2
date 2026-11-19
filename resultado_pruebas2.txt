@@ -1,0 +1,117 @@
+﻿
+   PASS  Tests\Unit\ExampleTest
+  Ô£ô that true is true                                                                                            0.45s  
+
+   PASS  Tests\Feature\AutenticacionTest
+  Ô£ô login con credenciales validas entrega token                                                                12.44s  
+  Ô£ô login con clave incorrecta devuelve 401                                                                      0.09s  
+  Ô£ô login con correo inexistente devuelve 401                                                                    0.06s  
+  Ô£ô cuenta se bloquea tras tres intentos fallidos                                                                0.11s  
+  Ô£ô sesion unica el token anterior deja de funcionar                                                             0.24s  
+  Ô£ô ruta protegida sin token devuelve 401                                                                        0.20s  
+
+   FAIL  Tests\Feature\ConstanciaTest
+  Ô£ô el administrador descarga la constancia en pdf                                                               6.05s  
+  Ô£ô el ciudadano no puede descargar constancias                                                                  0.13s  
+  Ô£ô el administrador descarga las estadisticas en pdf                                                            0.88s  
+  Ô¿» la constancia de un habitante sin familia activa da error controlado                                         1.71s  
+
+   PASS  Tests\Feature\ControlAccesoTest
+  Ô£ô sin token todas las rutas protegidas devuelven 401                                                           0.42s  
+  Ô£ô usuario ciudadano no accede a modulos administrativos                                                        0.10s  
+  Ô£ô vocero no accede al censo ni a la administracion                                                             0.12s  
+  Ô£ô vocero si puede consultar los modulos de lectura                                                             0.80s  
+  Ô£ô administrador accede a los modulos administrativos                                                           0.57s  
+  Ô£ô vocero no puede registrar pago a nombre de un habitante                                                      0.26s  
+  Ô£ô vocero no puede crear voceros                                                                                0.13s  
+  Ô£ô rutas exclusivas del vocero rechazan a otros roles                                                           0.22s  
+
+   PASS  Tests\Feature\EstimadorConsumoTest
+  Ô£ô con una sola entrega no hay datos                                                                            0.14s  
+  Ô£ô varias entregas el mismo dia cuentan como una                                                                0.09s  
+  Ô£ô familia al dia con mas de siete dias restantes                                                               0.07s  
+  Ô£ô familia proxima con siete dias o menos                                                                       0.08s  
+  Ô£ô familia vencida cuando ya paso la fecha estimada                                                             0.11s  
+  Ô£ô la calle toma el riesgo de su peor familia                                                                   0.24s  
+  Ô£ô calle sin datos suficientes no se pinta de verde                                                             0.13s  
+
+   PASS  Tests\Feature\ExampleTest
+  Ô£ô the application returns a successful response                                                                0.67s  
+
+   PASS  Tests\Feature\FamiliasTest
+  Ô£ô registra la familia con sus habitantes en un solo envio                                                      0.46s  
+  Ô£ô si un habitante es invalido no se guarda ni la familia                                                       0.26s  
+  Ô£ô no permite un codigo de vivienda repetido                                                                    0.18s  
+  Ô£ô no permite cedulas repetidas                                                                                 0.16s  
+  Ô£ô el nombre del responsable solo admite letras                                                                 0.12s  
+  Ô£ô habitante con discapacidad exige el tipo                                                                     0.13s  
+  Ô£ô campos obligatorios de la familia                                                                            0.12s  
+  Ô£ô el vocero no puede registrar familias                                                                        0.25s  
+
+   PASS  Tests\Feature\MapaCalorAccesoTest
+  Ô£ô el vocero solo ve las calles de su sede                                                                      0.29s  
+  Ô£ô el administrador ve las calles de todas las sedes                                                            0.17s  
+  Ô£ô el vocero no puede ver el detalle de una calle de otra sede                                                  0.25s  
+  Ô£ô un vocero sin mandato activo no accede al mapa                                                               0.13s  
+  Ô£ô el ciudadano no accede al mapa                                                                               0.11s  
+
+   PASS  Tests\Feature\PagosRegistroTest
+  Ô£ô ciudadano envia un pago valido y queda pendiente                                                             1.72s  
+  Ô£ô no permite una referencia bancaria repetida                                                                  0.11s  
+  Ô£ô el metodo debe coincidir con el de la cuenta                                                                 0.11s  
+  Ô£ô la fecha del pago no puede tener mas de 30 dias                                                              0.11s  
+  Ô£ô la fecha del pago no puede ser futura                                                                        0.09s  
+  Ô£ô el comprobante debe ser una imagen                                                                           0.11s  
+  Ô£ô campos obligatorios del pago                                                                                 0.08s  
+  Ô£ô administrador registra un pago a nombre de un habitante                                                      0.13s  
+  Ô£ô el pago a nombre de un habitante exige un habitante existente                                                0.10s  
+
+   PASS  Tests\Feature\RegistroPublicoTest
+  Ô£ô el registro publico no permite elegir el rol                                                                 0.13s  
+  Ô£ô el registro publico valida los datos                                                                         0.19s  
+
+   PASS  Tests\Feature\UsuariosRolesTest
+  Ô£ô el administrador cambia el rol de otro usuario                                                               0.24s  
+  Ô£ô al cambiar el rol se revocan los tokens del usuario                                                          0.09s  
+  Ô£ô el administrador no puede cambiar su propio rol                                                              0.09s  
+  Ô£ô el administrador no puede desactivarse a si mismo                                                            0.13s  
+  Ô£ô rol invalido es rechazado                                                                                    0.11s  
+  Ô£ô el administrador puede desactivar y reactivar una cuenta                                                     0.13s  
+  Ô£ô el administrador puede desbloquear una cuenta                                                                0.30s  
+  Ô£ô vocero y ciudadano no pueden cambiar roles                                                                   0.15s  
+
+   PASS  Tests\Feature\ValidacionPagosTest
+  Ô£ô vocero puede verificar un pago pendiente                                                                     0.34s  
+  Ô£ô administrador puede verificar un pago pendiente                                                              0.12s  
+  Ô£ô un pago ya verificado no puede modificarse                                                                   0.12s  
+  Ô£ô rechazar sin motivo es rechazado por el servidor                                                             0.33s  
+  Ô£ô rechazar con motivo guarda el motivo                                                                         0.16s  
+  Ô£ô el ciudadano no puede validar pagos                                                                          0.15s  
+
+   PASS  Tests\Feature\VocerosReglasTest
+  Ô£ô administrador puede registrar un vocero                                                                      0.20s  
+  Ô£ô no permite dos mandatos activos del mismo habitante                                                          0.14s  
+  Ô£ô la fecha de eleccion no puede ser futura                                                                     0.11s  
+  Ô£ô campos obligatorios del vocero                                                                               0.11s  
+  Ô£ô desactivar el mandato permite registrar uno nuevo                                                            0.14s  
+  ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ  
+   FAILED  Tests\Feature\ConstanciaTest > la constancia de un habitante sin familia activa da error controlado          
+  Se esperaba un error controlado 422 y se obtuvo 200
+Failed asserting that 200 is identical to 422.
+
+  at tests\Feature\ConstanciaTest.php:64
+     60Ôûò         $this->actuarComo('admin');
+     61Ôûò 
+     62Ôûò         $r = $this->getJson("/api/v1/reportes/constancia-residencia/{$habitante->id}");
+     63Ôûò 
+  Ô×£  64Ôûò         $this->assertSame(422, $r->getStatusCode(), 'Se esperaba un error controlado 422 y se obtuvo ' . $r->getStatusCode());
+     65Ôûò     }
+     66Ôûò }
+     67Ôûò
+
+  1   tests\Feature\ConstanciaTest.php:64
+
+
+  Tests:    1 failed, 69 passed (204 assertions)
+  Duration: 39.89s
+

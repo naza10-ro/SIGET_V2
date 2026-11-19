@@ -1,0 +1,2700 @@
+﻿
+=== C:\Users\vivia\Documents\SIGET_V2\app\Http\Requests\Auth\ForgotPasswordRequest.php ===
+<?php
+
+namespace App\Http\Requests\Auth;
+
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Contracts\Validation\Validator;
+use Illuminate\Http\Exceptions\HttpResponseException;
+
+class ForgotPasswordRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return true;
+    }
+
+    public function rules(): array
+    {
+        return [
+            'email' => ['required', 'email', 'exists:users,email'],
+        ];
+    }
+
+    public function messages(): array
+    {
+        return [
+            'email.required' => 'El correo electrÃ³nico es obligatorio.',
+            'email.exists'   => 'No encontramos una cuenta con ese correo.',
+        ];
+    }
+
+    protected function failedValidation(Validator $validator): void
+    {
+        throw new HttpResponseException(response()->json([
+            'message' => 'Error de validaciÃ³n.',
+            'errors'  => $validator->errors(),
+        ], 422));
+    }
+}
+
+=== C:\Users\vivia\Documents\SIGET_V2\app\Http\Requests\Auth\LoginRequest.php ===
+<?php
+
+namespace App\Http\Requests\Auth;
+
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Contracts\Validation\Validator;
+use Illuminate\Http\Exceptions\HttpResponseException;
+
+/**
+ * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ *  LoginRequest â€” ValidaciÃ³n del formulario de login
+ * â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+ *  DECISIÃ“N ARQUITECTÃ“NICA â€” SRP (Single Responsibility Principle):
+ *  La validaciÃ³n es responsabilidad exclusiva del Form Request.
+ *  El controlador asume que los datos que recibe ya son vÃ¡lidos.
+ *
+ *  TRUCO CRÃTICO PARA APIs:
+ *  Por defecto, si la validaciÃ³n falla en una ruta web, Laravel
+ *  hace redirect de vuelta. En una API/SPA React eso devuelve
+ *  un 302 que React no puede procesar.
+ *  La soluciÃ³n es sobreescribir failedValidation() para forzar
+ *  siempre una respuesta JSON 422.
+ * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ */
+class LoginRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return true; // Cualquiera puede intentar hacer login
+    }
+
+    public function rules(): array
+    {
+        return [
+            'email'    => ['required', 'string', 'email', 'max:150'],
+            'password' => ['required', 'string', 'min:8',  'max:100'],
+        ];
+    }
+
+    /**
+     * Nombres de atributos en espaÃ±ol para los mensajes de error.
+     */
+    public function attributes(): array
+    {
+        return [
+            'email'    => 'correo electrÃ³nico',
+            'password' => 'contraseÃ±a',
+        ];
+    }
+
+    /**
+     * Mensajes de error personalizados.
+     */
+    public function messages(): array
+    {
+        return [
+            'email.required'    => 'El correo electrÃ³nico es obligatorio.',
+            'email.email'       => 'Ingresa un correo electrÃ³nico vÃ¡lido.',
+            'password.required' => 'La contraseÃ±a es obligatoria.',
+            'password.min'      => 'La contraseÃ±a debe tener al menos :min caracteres.',
+        ];
+    }
+
+    /**
+     * CRÃTICO: Fuerza respuesta JSON en vez de redirect HTML.
+     * Sin este mÃ©todo, React recibe un 302 en lugar de un 422.
+     */
+    protected function failedValidation(Validator $validator): void
+    {
+        throw new HttpResponseException(
+            response()->json([
+                'message' => 'Los datos proporcionados no son vÃ¡lidos.',
+                'errors'  => $validator->errors(),
+            ], 422)
+        );
+    }
+}
+
+=== C:\Users\vivia\Documents\SIGET_V2\app\Http\Requests\Auth\RegisterRequest.php ===
+<?php
+/// â”€â”€â”€ ValidaciÃ³n de registro â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+/**
+ *  Este FormRequest valida los datos de registro de un nuevo usuario.
+ *  Se asegura de que el nombre, cÃ©dula, correo y contraseÃ±a cumplan
+ *  con los requisitos y que la cÃ©dula y correo sean Ãºnicos.
+ *  Si la validaciÃ³n falla, retorna un JSON con los errores.
+ */
+namespace App\Http\Requests\Auth;
+
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Contracts\Validation\Validator;
+use Illuminate\Http\Exceptions\HttpResponseException;
+
+class RegisterRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return true; // Ruta pÃºblica
+    }
+
+    public function rules(): array
+    {
+        return [
+            'name'     => ['required', 'string', 'max:100'],
+            'cedula'   => ['required', 'string', 'max:20', 'unique:users,cedula'],
+            'email'    => ['required', 'email', 'max:150', 'unique:users,email'],
+            'password' => ['required', 'string', 'min:8', 'confirmed'],
+            // password_confirmation se valida automÃ¡ticamente con 'confirmed'
+        ];
+    }
+
+    public function messages(): array
+    {
+        return [
+            'name.required'      => 'El nombre es obligatorio.',
+            'cedula.required'    => 'La cÃ©dula es obligatoria.',
+            'cedula.unique'      => 'Esta cÃ©dula ya estÃ¡ registrada.',
+            'email.required'     => 'El correo electrÃ³nico es obligatorio.',
+            'email.unique'       => 'Este correo ya estÃ¡ registrado.',
+            'password.required'  => 'La contraseÃ±a es obligatoria.',
+            'password.min'       => 'La contraseÃ±a debe tener al menos 8 caracteres.',
+            'password.confirmed' => 'Las contraseÃ±as no coinciden.',
+        ];
+    }
+
+    protected function failedValidation(Validator $validator): void
+    {
+        throw new HttpResponseException(response()->json([
+            'message' => 'Error de validaciÃ³n.',
+            'errors'  => $validator->errors(),
+        ], 422));
+    }
+}
+
+=== C:\Users\vivia\Documents\SIGET_V2\app\Http\Requests\Auth\ResetPasswordRequest.php ===
+<?php
+//Para vereificar OTP y resetear contraseÃ±a
+/**
+ *  Este FormRequest valida los datos para restablecer la contraseÃ±a.
+ *  Se asegura de que el correo electrÃ³nico sea vÃ¡lido, que el OTP
+ *  tenga el formato correcto y que la nueva contraseÃ±a cumpla con los requisitos.
+ *  Si la validaciÃ³n falla, retorna un JSON con los errores.
+ */
+namespace App\Http\Requests\Auth;
+
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Contracts\Validation\Validator;
+use Illuminate\Http\Exceptions\HttpResponseException;
+
+class ResetPasswordRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return true;
+    }
+
+    public function rules(): array
+    {
+        return [
+            'email'    => ['required', 'email', 'exists:users,email'],
+            'otp'      => ['required', 'string', 'size:6'],
+            'password' => ['required', 'string', 'min:8', 'confirmed'],
+        ];
+    }
+
+    public function messages(): array
+    {
+        return [
+            'email.required'     => 'El correo electrÃ³nico es obligatorio.',
+            'email.exists'       => 'No encontramos una cuenta con ese correo.',
+            'otp.required'       => 'El cÃ³digo de verificaciÃ³n es obligatorio.',
+            'otp.size'           => 'El cÃ³digo debe tener exactamente 6 dÃ­gitos.',
+            'password.required'  => 'La nueva contraseÃ±a es obligatoria.',
+            'password.min'       => 'La contraseÃ±a debe tener al menos 8 caracteres.',
+            'password.confirmed' => 'Las contraseÃ±as no coinciden.',
+        ];
+    }
+
+    protected function failedValidation(Validator $validator): void
+    {
+        throw new HttpResponseException(response()->json([
+            'message' => 'Error de validaciÃ³n.',
+            'errors'  => $validator->errors(),
+        ], 422));
+    }
+}
+
+=== C:\Users\vivia\Documents\SIGET_V2\app\Http\Requests\Beneficio\StoreBeneficioRequest.php ===
+<?php
+
+namespace App\Http\Requests\Beneficio;
+
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Contracts\Validation\Validator;
+use Illuminate\Http\Exceptions\HttpResponseException;
+
+class StoreBeneficioRequest extends FormRequest
+{
+    public function authorize(): bool { return true; }
+
+    public function rules(): array
+    {
+        return [
+            'familia_id'        => ['required', 'integer', 'exists:familias,id'],
+            'nombre_beneficio'  => ['required', 'string', 'max:200'],
+            'fecha_entrega'     => ['required', 'date'],
+            'observaciones'     => ['nullable', 'string', 'max:500'],
+        ];
+    }
+
+    public function messages(): array
+    {
+        return [
+            'familia_id.required'       => 'Debes seleccionar una familia.',
+            'familia_id.exists'         => 'La familia seleccionada no existe.',
+            'nombre_beneficio.required' => 'El nombre del beneficio es obligatorio.',
+            'fecha_entrega.required'    => 'La fecha de entrega es obligatoria.',
+        ];
+    }
+
+    protected function failedValidation(Validator $validator): never
+    {
+        throw new HttpResponseException(
+            response()->json(['message' => 'Error de validaciÃ³n.', 'errors' => $validator->errors()], 422)
+        );
+    }
+}
+
+=== C:\Users\vivia\Documents\SIGET_V2\app\Http\Requests\Beneficio\UpdateBeneficioRequest.php ===
+<?php
+
+namespace App\Http\Requests\Beneficio;
+
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Contracts\Validation\Validator;
+use Illuminate\Http\Exceptions\HttpResponseException;
+
+class UpdateBeneficioRequest extends FormRequest
+{
+    public function authorize(): bool { return true; }
+
+    public function rules(): array
+    {
+        return [
+            'nombre_beneficio' => ['sometimes', 'required', 'string', 'max:200'],
+            'fecha_entrega'    => ['sometimes', 'required', 'date'],
+            'observaciones'    => ['nullable', 'string', 'max:500'],
+        ];
+    }
+
+    protected function failedValidation(Validator $validator): never
+    {
+        throw new HttpResponseException(
+            response()->json(['message' => 'Error de validaciÃ³n.', 'errors' => $validator->errors()], 422)
+        );
+    }
+}
+
+=== C:\Users\vivia\Documents\SIGET_V2\app\Http\Requests\Calle\CoordenadasCalleRequest.php ===
+<?php
+
+namespace App\Http\Requests\Calle;
+
+use Illuminate\Contracts\Validation\Validator;
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Http\Exceptions\HttpResponseException;
+
+/**
+ * Asignar el punto de una calle en el mapa. Solo admin.
+ *
+ * Los rangos estÃ¡n acotados a una caja que cubre el estado Miranda
+ * (la comuna estÃ¡ en Guacaipuro, ~10.34 N, -67.04 O). Es una red de
+ * seguridad: un clic fuera de lugar o un valor manipulado no puede
+ * mandar una calle a otro continente. Si el consejo se ampliara a
+ * otra zona, se ajustan estas constantes.
+ */
+class CoordenadasCalleRequest extends FormRequest
+{
+    public const LAT_MIN = 9.8;
+    public const LAT_MAX = 10.8;
+    public const LNG_MIN = -67.8;
+    public const LNG_MAX = -65.4;
+
+    public function authorize(): bool
+    {
+        return $this->user()?->esAdmin() === true;
+    }
+
+    public function rules(): array
+    {
+        return [
+            'latitud'  => ['required', 'numeric', 'between:' . self::LAT_MIN . ',' . self::LAT_MAX],
+            'longitud' => ['required', 'numeric', 'between:' . self::LNG_MIN . ',' . self::LNG_MAX],
+        ];
+    }
+
+    public function messages(): array
+    {
+        return [
+            'latitud.between'  => 'La latitud queda fuera de la zona del estado Miranda.',
+            'longitud.between' => 'La longitud queda fuera de la zona del estado Miranda.',
+        ];
+    }
+
+    protected function failedValidation(Validator $validator)
+    {
+        throw new HttpResponseException(response()->json([
+            'message' => 'Los datos proporcionados no son vÃ¡lidos.',
+            'errors'  => $validator->errors(),
+        ], 422));
+    }
+
+    protected function failedAuthorization()
+    {
+        throw new HttpResponseException(response()->json([
+            'message' => 'No tiene autorizaciÃ³n para esta acciÃ³n.',
+        ], 403));
+    }
+}
+
+=== C:\Users\vivia\Documents\SIGET_V2\app\Http\Requests\Comunicado\StoreComunicadoRequest.php ===
+<?php
+
+namespace App\Http\Requests\Comunicado;
+
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Contracts\Validation\Validator;
+use Illuminate\Http\Exceptions\HttpResponseException;
+
+class StoreComunicadoRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        // Solo admin y operador pueden crear comunicados (capa 3 RBAC)
+        return true; // El middleware de ruta ya filtra por rol
+    }
+
+    public function rules(): array
+    {
+        return [
+            'destinatario'       => ['required', 'string', 'max:200'],
+            'cargo_destinatario' => ['nullable', 'string', 'max:150'],
+            'asunto'             => ['required', 'string', 'max:300'],
+            'cuerpo'             => ['required', 'string', 'min:10'],
+            'estado'             => ['sometimes', 'in:borrador,enviado,archivado'],
+        ];
+    }
+
+    public function messages(): array
+    {
+        return [
+            'destinatario.required'  => 'El destinatario es obligatorio.',
+            'destinatario.max'       => 'El destinatario no puede superar 200 caracteres.',
+            'asunto.required'        => 'El asunto es obligatorio.',
+            'asunto.max'             => 'El asunto no puede superar 300 caracteres.',
+            'cuerpo.required'        => 'El cuerpo del comunicado es obligatorio.',
+            'cuerpo.min'             => 'El cuerpo debe tener al menos 10 caracteres.',
+            'estado.in'              => 'El estado debe ser: borrador, enviado o archivado.',
+        ];
+    }
+
+    // â”€â”€â”€ Forzar respuesta JSON (crÃ­tico para SPA React) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+    protected function failedValidation(Validator $validator): void
+    {
+        throw new HttpResponseException(response()->json([
+            'message' => 'Error de validaciÃ³n.',
+            'errors'  => $validator->errors(),
+        ], 422));
+    }
+
+    protected function failedAuthorization(): void
+    {
+        throw new HttpResponseException(response()->json([
+            'message' => 'No tienes permiso para realizar esta acciÃ³n.',
+        ], 403));
+    }
+}
+
+=== C:\Users\vivia\Documents\SIGET_V2\app\Http\Requests\Comunicado\UpdateComunicadoRequest.php ===
+<?php
+
+namespace App\Http\Requests\Comunicado;
+
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Contracts\Validation\Validator;
+use Illuminate\Http\Exceptions\HttpResponseException;
+
+class UpdateComunicadoRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return true;
+    }
+
+    public function rules(): array
+    {
+        return [
+            'destinatario'       => ['sometimes', 'required', 'string', 'max:200'],
+            'cargo_destinatario' => ['nullable', 'string', 'max:150'],
+            'asunto'             => ['sometimes', 'required', 'string', 'max:300'],
+            'cuerpo'             => ['sometimes', 'required', 'string', 'min:10'],
+            'estado'             => ['sometimes', 'in:borrador,enviado,archivado'],
+        ];
+    }
+
+    protected function failedValidation(Validator $validator): void
+    {
+        throw new HttpResponseException(response()->json([
+            'message' => 'Error de validaciÃ³n.',
+            'errors'  => $validator->errors(),
+        ], 422));
+    }
+
+    protected function failedAuthorization(): void
+    {
+        throw new HttpResponseException(response()->json([
+            'message' => 'No tienes permiso para realizar esta acciÃ³n.',
+        ], 403));
+    }
+}
+
+=== C:\Users\vivia\Documents\SIGET_V2\app\Http\Requests\CuentaPago\StoreCuentaPagoRequest.php ===
+<?php
+
+namespace App\Http\Requests\CuentaPago;
+
+use App\Models\CuentaPago;
+use Illuminate\Contracts\Validation\Validator;
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Http\Exceptions\HttpResponseException;
+use Illuminate\Validation\Rule;
+
+/**
+ * StoreCuentaPagoRequest
+ * Ruta fÃ­sica: app/Http/Requests/CuentaPago/StoreCuentaPagoRequest.php
+ *
+ * Solo admin/operador pueden crear cuentas de pago (Capa 3 en api.php,
+ * el middleware de rol ya filtra el acceso antes de llegar aquÃ­).
+ *
+ * CAMBIO (sept-2026, correcciÃ³n 2 del profesor: proceso de pago) â€”
+ * `metodo` decide quÃ© dato bancario es obligatorio:
+ *   - pago_movil    â†’ telefono requerido
+ *   - transferencia â†’ numero_cuenta requerido
+ * Antes 'telefono' era siempre obligatorio (solo existÃ­a pago mÃ³vil).
+ */
+class StoreCuentaPagoRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return true;
+    }
+
+    public function rules(): array
+    {
+        return [
+            'nombre_servicio' => ['required', 'string', 'max:100'],
+            'metodo'          => ['required', 'string', Rule::in(CuentaPago::METODOS)],
+            'banco'           => ['required', 'string', 'max:100'],
+            'telefono'        => ['required_if:metodo,pago_movil', 'nullable', 'string', 'max:20'],
+            'numero_cuenta'   => ['required_if:metodo,transferencia', 'nullable', 'string', 'max:20'],
+            'cedula_rif'      => ['required', 'string', 'max:20'],
+            'titular'         => ['required', 'string', 'max:150'],
+            'descripcion'     => ['nullable', 'string', 'max:500'],
+            'activa'          => ['sometimes', 'boolean'],
+        ];
+    }
+
+    public function messages(): array
+    {
+        return [
+            'nombre_servicio.required'  => 'El nombre del servicio es obligatorio.',
+            'metodo.required'           => 'Debes indicar el mÃ©todo de pago.',
+            'metodo.in'                 => 'El mÃ©todo de pago no es vÃ¡lido.',
+            'banco.required'            => 'El banco es obligatorio.',
+            'telefono.required_if'      => 'El telÃ©fono es obligatorio para pago mÃ³vil.',
+            'numero_cuenta.required_if' => 'El nÃºmero de cuenta es obligatorio para transferencia.',
+            'cedula_rif.required'       => 'La cÃ©dula o RIF es obligatoria.',
+            'titular.required'          => 'El nombre del titular es obligatorio.',
+        ];
+    }
+
+    protected function failedValidation(Validator $validator): void
+    {
+        throw new HttpResponseException(
+            response()->json([
+                'message' => 'Los datos proporcionados no son vÃ¡lidos.',
+                'errors'  => $validator->errors(),
+            ], 422)
+        );
+    }
+
+    protected function failedAuthorization(): void
+    {
+        throw new HttpResponseException(
+            response()->json(['message' => 'No autorizado.'], 403)
+        );
+    }
+}
+
+=== C:\Users\vivia\Documents\SIGET_V2\app\Http\Requests\CuentaPago\UpdateCuentaPagoRequest.php ===
+<?php
+
+namespace App\Http\Requests\CuentaPago;
+
+use App\Models\CuentaPago;
+use Illuminate\Contracts\Validation\Validator;
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Http\Exceptions\HttpResponseException;
+use Illuminate\Validation\Rule;
+
+/**
+ * UpdateCuentaPagoRequest
+ * Ruta fÃ­sica: app/Http/Requests/CuentaPago/UpdateCuentaPagoRequest.php
+ *
+ * Mismas reglas que Store â€” todos los campos son editables.
+ *
+ * CAMBIO (sept-2026, correcciÃ³n 2 del profesor: proceso de pago) â€”
+ * mismo condicional por `metodo` que en Store (ver ese archivo).
+ */
+class UpdateCuentaPagoRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return true;
+    }
+
+    public function rules(): array
+    {
+        return [
+            'nombre_servicio' => ['required', 'string', 'max:100'],
+            'metodo'          => ['required', 'string', Rule::in(CuentaPago::METODOS)],
+            'banco'           => ['required', 'string', 'max:100'],
+            'telefono'        => ['required_if:metodo,pago_movil', 'nullable', 'string', 'max:20'],
+            'numero_cuenta'   => ['required_if:metodo,transferencia', 'nullable', 'string', 'max:20'],
+            'cedula_rif'      => ['required', 'string', 'max:20'],
+            'titular'         => ['required', 'string', 'max:150'],
+            'descripcion'     => ['nullable', 'string', 'max:500'],
+            'activa'          => ['sometimes', 'boolean'],
+        ];
+    }
+
+    public function messages(): array
+    {
+        return [
+            'nombre_servicio.required'  => 'El nombre del servicio es obligatorio.',
+            'metodo.required'           => 'Debes indicar el mÃ©todo de pago.',
+            'metodo.in'                 => 'El mÃ©todo de pago no es vÃ¡lido.',
+            'banco.required'            => 'El banco es obligatorio.',
+            'telefono.required_if'      => 'El telÃ©fono es obligatorio para pago mÃ³vil.',
+            'numero_cuenta.required_if' => 'El nÃºmero de cuenta es obligatorio para transferencia.',
+            'cedula_rif.required'       => 'La cÃ©dula o RIF es obligatoria.',
+            'titular.required'          => 'El nombre del titular es obligatorio.',
+        ];
+    }
+
+    protected function failedValidation(Validator $validator): void
+    {
+        throw new HttpResponseException(
+            response()->json([
+                'message' => 'Los datos proporcionados no son vÃ¡lidos.',
+                'errors'  => $validator->errors(),
+            ], 422)
+        );
+    }
+
+    protected function failedAuthorization(): void
+    {
+        throw new HttpResponseException(
+            response()->json(['message' => 'No autorizado.'], 403)
+        );
+    }
+}
+
+=== C:\Users\vivia\Documents\SIGET_V2\app\Http\Requests\Encuesta\StoreEncuestaRequest.php ===
+<?php
+
+namespace App\Http\Requests\Encuesta;
+
+use App\Models\Encuesta;
+use Illuminate\Contracts\Validation\Validator;
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Http\Exceptions\HttpResponseException;
+use Illuminate\Validation\Rule;
+
+class StoreEncuestaRequest extends FormRequest
+{
+    /** Crear campaÃ±as es exclusivo del admin (defensa en profundidad: la ruta ya filtra por rol). */
+    public function authorize(): bool
+    {
+        return $this->user()?->esAdmin() === true;
+    }
+
+    public function rules(): array
+    {
+        return [
+            'nombre'       => ['required', 'string', 'max:150'],
+            'tipo'         => ['required', 'string', Rule::in(Encuesta::TIPOS)],
+            'descripcion'  => ['nullable', 'string', 'max:1000'],
+            'fecha_inicio' => ['nullable', 'date'],
+            'fecha_cierre' => ['nullable', 'date', 'after_or_equal:fecha_inicio'],
+            'activa'       => ['sometimes', 'boolean'],
+        ];
+    }
+
+    public function messages(): array
+    {
+        return [
+            'tipo.in'                      => 'El tipo debe ser bombona_gas, bolsa_clap u otro.',
+            'fecha_cierre.after_or_equal'  => 'La fecha de cierre no puede ser anterior a la de inicio.',
+        ];
+    }
+
+    protected function failedValidation(Validator $validator)
+    {
+        throw new HttpResponseException(response()->json([
+            'message' => 'Los datos proporcionados no son vÃ¡lidos.',
+            'errors'  => $validator->errors(),
+        ], 422));
+    }
+
+    protected function failedAuthorization()
+    {
+        throw new HttpResponseException(response()->json([
+            'message' => 'No tiene autorizaciÃ³n para esta acciÃ³n.',
+        ], 403));
+    }
+}
+
+=== C:\Users\vivia\Documents\SIGET_V2\app\Http\Requests\Encuesta\UpdateEncuestaRequest.php ===
+<?php
+
+namespace App\Http\Requests\Encuesta;
+
+use App\Models\Encuesta;
+use Illuminate\Contracts\Validation\Validator;
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Http\Exceptions\HttpResponseException;
+use Illuminate\Validation\Rule;
+
+class UpdateEncuestaRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return $this->user()?->esAdmin() === true;
+    }
+
+    public function rules(): array
+    {
+        return [
+            'nombre'       => ['sometimes', 'required', 'string', 'max:150'],
+            'tipo'         => ['sometimes', 'required', 'string', Rule::in(Encuesta::TIPOS)],
+            'descripcion'  => ['nullable', 'string', 'max:1000'],
+            'fecha_inicio' => ['nullable', 'date'],
+            'fecha_cierre' => ['nullable', 'date', 'after_or_equal:fecha_inicio'],
+            'activa'       => ['sometimes', 'boolean'],
+        ];
+    }
+
+    public function messages(): array
+    {
+        return [
+            'tipo.in'                      => 'El tipo debe ser bombona_gas, bolsa_clap u otro.',
+            'fecha_cierre.after_or_equal'  => 'La fecha de cierre no puede ser anterior a la de inicio.',
+        ];
+    }
+
+    /**
+     * Regla cruzada de robustez: cambiar el tipo de una campaÃ±a que ya tiene
+     * entregas cambiarÃ­a el significado de esos datos (el estimador de gas
+     * solo mira encuestas de tipo bombona_gas). Se bloquea.
+     */
+    public function withValidator(Validator $validator): void
+    {
+        $validator->after(function (Validator $validator) {
+            /** @var Encuesta|null $encuesta */
+            $encuesta = $this->route('encuesta');
+
+            if (! $encuesta instanceof Encuesta || ! $this->filled('tipo')) {
+                return;
+            }
+
+            if ($this->input('tipo') !== $encuesta->tipo && $encuesta->respuestas()->exists()) {
+                $validator->errors()->add(
+                    'tipo',
+                    'No se puede cambiar el tipo de una encuesta que ya tiene entregas registradas.'
+                );
+            }
+        });
+    }
+
+    protected function failedValidation(Validator $validator)
+    {
+        throw new HttpResponseException(response()->json([
+            'message' => 'Los datos proporcionados no son vÃ¡lidos.',
+            'errors'  => $validator->errors(),
+        ], 422));
+    }
+
+    protected function failedAuthorization()
+    {
+        throw new HttpResponseException(response()->json([
+            'message' => 'No tiene autorizaciÃ³n para esta acciÃ³n.',
+        ], 403));
+    }
+}
+
+=== C:\Users\vivia\Documents\SIGET_V2\app\Http\Requests\EncuestaRespuesta\StoreEncuestaRespuestaMasivaRequest.php ===
+<?php
+
+namespace App\Http\Requests\EncuestaRespuesta;
+
+use App\Models\Encuesta;
+use App\Models\Familia;
+use Illuminate\Contracts\Validation\Validator;
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Http\Exceptions\HttpResponseException;
+
+/**
+ * Registro masivo: una misma entrega (cantidad + fecha) aplicada a varias
+ * familias de una sola vez. Solo admin.
+ *
+ * Origen: propuesta de la compaÃ±era que diseÃ±Ã³ el mÃ³dulo, adaptada a las
+ * reglas del proyecto (oct-2026):
+ *  Â· solo admin (el rol operador no recibe permisos nuevos);
+ *  Â· cantidad entre 1 y 99 y fecha no futura, igual que el registro individual;
+ *  Â· la encuesta debe estar activa;
+ *  Â· la existencia de las familias se comprueba con UNA consulta (la versiÃ³n
+ *    original hacÃ­a una por cada familia, hasta 500).
+ */
+class StoreEncuestaRespuestaMasivaRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return $this->user()?->esAdmin() === true;
+    }
+
+    public function rules(): array
+    {
+        return [
+            'familia_ids'   => ['required', 'array', 'min:1', 'max:500'],
+            'familia_ids.*' => ['integer', 'distinct'],
+            'cantidad'      => ['required', 'integer', 'min:1', 'max:99'],
+            'fecha_entrega' => ['required', 'date', 'before_or_equal:today'],
+            'observaciones' => ['nullable', 'string', 'max:500'],
+        ];
+    }
+
+    public function attributes(): array
+    {
+        return [
+            'familia_ids'   => 'familias',
+            'cantidad'      => 'cantidad',
+            'fecha_entrega' => 'fecha de entrega',
+        ];
+    }
+
+    public function messages(): array
+    {
+        return [
+            'familia_ids.required'          => 'Selecciona al menos una familia.',
+            'familia_ids.min'               => 'Selecciona al menos una familia.',
+            'familia_ids.max'               => 'No puedes registrar mÃ¡s de 500 familias a la vez.',
+            'cantidad.min'                  => 'La cantidad debe ser al menos 1.',
+            'fecha_entrega.before_or_equal' => 'La fecha de entrega no puede ser futura.',
+        ];
+    }
+
+    public function withValidator(Validator $validator): void
+    {
+        $validator->after(function (Validator $validator) {
+            if ($validator->errors()->isNotEmpty()) {
+                return; // primero deben pasar las reglas bÃ¡sicas
+            }
+
+            /** @var Encuesta|null $encuesta */
+            $encuesta = $this->route('encuesta');
+
+            if ($encuesta instanceof Encuesta && ! $encuesta->activa) {
+                $validator->errors()->add('encuesta', 'La encuesta estÃ¡ cerrada: no admite nuevas entregas.');
+                return;
+            }
+
+            // Todas las familias deben existir y no estar dadas de baja (una consulta)
+            $ids      = array_values(array_unique(array_map('intval', (array) $this->input('familia_ids'))));
+            $vigentes = Familia::whereIn('id', $ids)->count();
+
+            if ($vigentes !== count($ids)) {
+                $validator->errors()->add(
+                    'familia_ids',
+                    'Alguna de las familias seleccionadas no existe o fue dada de baja. Recarga la lista e intÃ©ntalo de nuevo.'
+                );
+            }
+        });
+    }
+
+    protected function failedValidation(Validator $validator)
+    {
+        throw new HttpResponseException(response()->json([
+            'message' => 'Los datos proporcionados no son vÃ¡lidos.',
+            'errors'  => $validator->errors(),
+        ], 422));
+    }
+
+    protected function failedAuthorization()
+    {
+        throw new HttpResponseException(response()->json([
+            'message' => 'No tiene autorizaciÃ³n para esta acciÃ³n.',
+        ], 403));
+    }
+}
+
+=== C:\Users\vivia\Documents\SIGET_V2\app\Http\Requests\EncuestaRespuesta\StoreEncuestaRespuestaRequest.php ===
+<?php
+
+namespace App\Http\Requests\EncuestaRespuesta;
+
+use App\Models\Encuesta;
+use App\Models\EncuestaRespuesta;
+use Illuminate\Contracts\Validation\Validator;
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Http\Exceptions\HttpResponseException;
+use Illuminate\Validation\Rule;
+
+/**
+ * Registrar una entrega dentro de una encuesta. Solo admin.
+ *
+ * Validaciones de robustez (correcciÃ³n 3 del profesor):
+ *  - la familia debe existir y NO estar dada de baja
+ *  - cantidad mÃ­nima 1 (con 0 el estimador contarÃ­a una entrega falsa)
+ *  - la fecha no puede ser futura
+ *  - la encuesta debe estar activa
+ *  - no se repite la misma familia + encuesta + fecha (ignora bajas)
+ */
+class StoreEncuestaRespuestaRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return $this->user()?->esAdmin() === true;
+    }
+
+    public function rules(): array
+    {
+        return [
+            'familia_id'    => ['required', 'integer', Rule::exists('familias', 'id')->whereNull('deleted_at')],
+            'cantidad'      => ['required', 'integer', 'min:1', 'max:99'],
+            'fecha_entrega' => ['required', 'date', 'before_or_equal:today'],
+            'observaciones' => ['nullable', 'string', 'max:500'],
+        ];
+    }
+
+    public function messages(): array
+    {
+        return [
+            'familia_id.exists'            => 'La familia seleccionada no existe o fue dada de baja.',
+            'cantidad.min'                 => 'La cantidad debe ser al menos 1.',
+            'fecha_entrega.before_or_equal' => 'La fecha de entrega no puede ser futura.',
+        ];
+    }
+
+    public function withValidator(Validator $validator): void
+    {
+        $validator->after(function (Validator $validator) {
+            if ($validator->errors()->isNotEmpty()) {
+                return; // primero deben pasar las reglas bÃ¡sicas
+            }
+
+            /** @var Encuesta|null $encuesta */
+            $encuesta = $this->route('encuesta');
+
+            if (! $encuesta instanceof Encuesta) {
+                return;
+            }
+
+            if (! $encuesta->activa) {
+                $validator->errors()->add('encuesta', 'La encuesta estÃ¡ cerrada: no admite nuevas entregas.');
+                return;
+            }
+
+            $yaExiste = EncuestaRespuesta::query()
+                ->where('encuesta_id', $encuesta->id)
+                ->where('familia_id', (int) $this->input('familia_id'))
+                ->whereDate('fecha_entrega', $this->input('fecha_entrega'))
+                ->exists();
+
+            if ($yaExiste) {
+                $validator->errors()->add(
+                    'fecha_entrega',
+                    'Ya hay una entrega de esa familia en esa fecha para esta encuesta.'
+                );
+            }
+        });
+    }
+
+    protected function failedValidation(Validator $validator)
+    {
+        throw new HttpResponseException(response()->json([
+            'message' => 'Los datos proporcionados no son vÃ¡lidos.',
+            'errors'  => $validator->errors(),
+        ], 422));
+    }
+
+    protected function failedAuthorization()
+    {
+        throw new HttpResponseException(response()->json([
+            'message' => 'No tiene autorizaciÃ³n para esta acciÃ³n.',
+        ], 403));
+    }
+}
+
+=== C:\Users\vivia\Documents\SIGET_V2\app\Http\Requests\EncuestaRespuesta\UpdateEncuestaRespuestaRequest.php ===
+<?php
+
+namespace App\Http\Requests\EncuestaRespuesta;
+
+use App\Models\EncuestaRespuesta;
+use Illuminate\Contracts\Validation\Validator;
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Http\Exceptions\HttpResponseException;
+
+/**
+ * Corregir una entrega ya registrada. Solo admin.
+ * La familia y la encuesta no se pueden cambiar: para eso se elimina
+ * el registro y se crea uno nuevo.
+ */
+class UpdateEncuestaRespuestaRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return $this->user()?->esAdmin() === true;
+    }
+
+    public function rules(): array
+    {
+        return [
+            'cantidad'      => ['sometimes', 'required', 'integer', 'min:1', 'max:99'],
+            'fecha_entrega' => ['sometimes', 'required', 'date', 'before_or_equal:today'],
+            'observaciones' => ['nullable', 'string', 'max:500'],
+        ];
+    }
+
+    public function messages(): array
+    {
+        return [
+            'cantidad.min'                  => 'La cantidad debe ser al menos 1.',
+            'fecha_entrega.before_or_equal' => 'La fecha de entrega no puede ser futura.',
+        ];
+    }
+
+    public function withValidator(Validator $validator): void
+    {
+        $validator->after(function (Validator $validator) {
+            if ($validator->errors()->isNotEmpty() || ! $this->filled('fecha_entrega')) {
+                return;
+            }
+
+            /** @var EncuestaRespuesta|null $respuesta */
+            $respuesta = $this->route('encuestaRespuesta');
+
+            if (! $respuesta instanceof EncuestaRespuesta) {
+                return;
+            }
+
+            $yaExiste = EncuestaRespuesta::query()
+                ->where('encuesta_id', $respuesta->encuesta_id)
+                ->where('familia_id', $respuesta->familia_id)
+                ->whereDate('fecha_entrega', $this->input('fecha_entrega'))
+                ->where('id', '!=', $respuesta->id)
+                ->exists();
+
+            if ($yaExiste) {
+                $validator->errors()->add(
+                    'fecha_entrega',
+                    'Ya hay otra entrega de esa familia en esa fecha para esta encuesta.'
+                );
+            }
+        });
+    }
+
+    protected function failedValidation(Validator $validator)
+    {
+        throw new HttpResponseException(response()->json([
+            'message' => 'Los datos proporcionados no son vÃ¡lidos.',
+            'errors'  => $validator->errors(),
+        ], 422));
+    }
+
+    protected function failedAuthorization()
+    {
+        throw new HttpResponseException(response()->json([
+            'message' => 'No tiene autorizaciÃ³n para esta acciÃ³n.',
+        ], 403));
+    }
+}
+
+=== C:\Users\vivia\Documents\SIGET_V2\app\Http\Requests\Familia\StoreFamiliaRequest.php ===
+<?php
+
+namespace App\Http\Requests\Familia;
+
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Contracts\Validation\Validator;
+use Illuminate\Http\Exceptions\HttpResponseException;
+use Illuminate\Validation\Rule;
+
+/**
+ * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ *  ValidaciÃ³n del registro de familia + sus habitantes
+ * â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+ *  CAMBIO (sept-2026): por instrucciÃ³n del profesor, el mÃ³dulo de
+ *  Habitantes deja de ser independiente. El payload ahora puede
+ *  traer un array `habitantes[]` â€” el registro de habitantes ya
+ *  no tiene su propio endpoint/FormRequest, todo se valida y se
+ *  crea junto con la familia (ver FamiliaController::store,
+ *  DB::transaction: o se guarda todo, o no se guarda nada).
+ *
+ *  Las reglas por-elemento del array usan la notaciÃ³n wildcard de
+ *  Laravel (`habitantes.*.campo`). Lo que Laravel NO resuelve bien
+ *  con wildcards es la validaciÃ³n cruzada (p. ej. "tipo_discapacidad
+ *  obligatorio SOLO si ESE MISMO habitante tiene es_discapacitado
+ *  = true"), asÃ­ que esa regla se aplica a mano en withValidator()
+ *  recorriendo el array â€” mismo criterio que usaba la extinta
+ *  StoreHabitanteRequest, adaptado a que ahora son N habitantes.
+ *
+ *  CAMPOS DEL FORMULARIO React â†’ reglas de validaciÃ³n (familia):
+ *  igual que antes de este cambio â€” ver historial del documento
+ *  maestro para el detalle campo por campo.
+ * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ */
+class StoreFamiliaRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        // Solo el admin puede registrar familias (el rol operador se eliminÃ³ en oct-2026)
+        // (el AdminMiddleware ya protege la ruta â€” esto es una segunda barrera)
+        return $this->user()?->rol === 'admin';
+    }
+
+    public function rules(): array
+    {
+        return [
+            'codigo_vivienda' => [
+                'required',
+                'string',
+                'max:20',
+                'unique:familias,codigo_vivienda', // Unicidad en PostgreSQL
+            ],
+            'nombre_responsable' => [
+                'required',
+                'string',
+                'max:100',
+                // Solo letras (con tildes/Ã±), espacios, apÃ³strofes y guiones
+                'regex:/^[\p{L}\s\'\-]+$/u',
+            ],
+            'sede_id' => [
+                'required',
+                'integer',
+                'exists:sedes,id',
+            ],
+            'calle_id' => [
+                'required',
+                'integer',
+                'exists:calles,id',
+            ],
+            'condicion_vivienda' => [
+                'required',
+                'string',
+                'in:optima,regular,critica',
+            ],
+            'cantidad_bombonas' => [
+                'required',
+                'integer',
+                'min:0',
+                'max:99',
+            ],
+            'capacidad_bombona' => [
+                'required',
+                'string',
+                'in:10kg,18kg,43kg',
+            ],
+            'posee_agua_potable' => [
+                'required',
+                'boolean',
+            ],
+            'posee_luz' => [
+                'required',
+                'boolean',
+            ],
+            'posee_aseo' => [
+                'required',
+                'boolean',
+            ],
+            'punto_referencia' => [
+                'nullable',
+                'string',
+                'max:255',
+            ],
+
+            // â”€â”€ Habitantes de la familia (array opcional) â”€â”€â”€â”€â”€â”€â”€â”€
+            // Sin FormRequest propio â€” todo el detalle vive aquÃ­.
+            'habitantes' => [
+                'sometimes',
+                'array',
+            ],
+            'habitantes.*.cedula' => [
+                'nullable',
+                'string',
+                'max:15',
+                'distinct', // Sin cÃ©dulas repetidas en el mismo envÃ­o
+                // CorrecciÃ³n 3 (sept-2026, backlog 11.2): antes era
+                // 'unique:habitantes,cedula' a secas, que compara contra
+                // TODA la tabla incluidos los habitantes dados de baja â€”
+                // por eso una cÃ©dula que ya estuvo registrada (y luego se
+                // dio de baja) rechazaba el registro nuevo. Con
+                // whereNull('deleted_at') solo se compara contra
+                // habitantes activos; si la cÃ©dula pertenece a alguien
+                // dado de baja, FamiliaController::crearHabitante()
+                // restaura ese registro en vez de crear uno nuevo.
+                Rule::unique('habitantes', 'cedula')->whereNull('deleted_at'),
+            ],
+            'habitantes.*.nombres' => [
+                'required_with:habitantes',
+                'string',
+                'max:100',
+                'regex:/^[\p{L}\s\'\-]+$/u',
+            ],
+            'habitantes.*.apellidos' => [
+                'required_with:habitantes',
+                'string',
+                'max:100',
+                'regex:/^[\p{L}\s\'\-]+$/u',
+            ],
+            'habitantes.*.fecha_nacimiento' => [
+                'required_with:habitantes',
+                'date_format:Y-m-d',
+                'before:today',
+                'after:1900-01-01',
+            ],
+            'habitantes.*.sexo' => [
+                'required_with:habitantes',
+                'string',
+                'in:masculino,femenino,otro',
+            ],
+            'habitantes.*.es_discapacitado' => [
+                'required_with:habitantes',
+                'boolean',
+            ],
+            'habitantes.*.tipo_discapacidad' => [
+                'nullable',
+                'string',
+                'max:100',
+                // NOTA: el "required_if" cruzado (obligatorio solo si
+                // ese mismo habitante tiene es_discapacitado=true) se
+                // valida a mano en withValidator(), no aquÃ­.
+            ],
+            'habitantes.*.enfermedad_cronica' => [
+                'nullable',
+                'string',
+                'max:150',
+            ],
+            'habitantes.*.nivel_educativo' => [
+                'required_with:habitantes',
+                'string',
+                'in:ninguno,primaria,bachillerato,tecnico,universitario,postgrado',
+            ],
+        ];
+    }
+
+    /**
+     * ValidaciÃ³n cruzada por habitante que las reglas wildcard de
+     * arriba no pueden expresar de forma fiable.
+     */
+    public function withValidator(Validator $validator): void
+    {
+        $validator->after(function (Validator $validator) {
+            $habitantes = $this->input('habitantes', []);
+
+            foreach ($habitantes as $i => $h) {
+                $esDiscapacitado = filter_var($h['es_discapacitado'] ?? false, FILTER_VALIDATE_BOOLEAN);
+                $tipo = trim((string) ($h['tipo_discapacidad'] ?? ''));
+
+                if ($esDiscapacitado && $tipo === '') {
+                    $validator->errors()->add(
+                        "habitantes.{$i}.tipo_discapacidad",
+                        'Debes describir el tipo de discapacidad.'
+                    );
+                }
+            }
+        });
+    }
+
+    public function attributes(): array
+    {
+        return [
+            'codigo_vivienda'    => 'cÃ³digo de vivienda',
+            'nombre_responsable' => 'responsable de la familia',
+            'sede_id'            => 'sede',
+            'calle_id'           => 'calle',
+            'condicion_vivienda' => 'condiciÃ³n de la vivienda',
+            'cantidad_bombonas'  => 'cantidad de bombonas',
+            'capacidad_bombona'  => 'capacidad de bombona',
+            'posee_agua_potable' => 'agua potable',
+            'posee_luz'          => 'servicio de luz',
+            'posee_aseo'         => 'servicio de aseo',
+            'punto_referencia'   => 'punto de referencia',
+        ];
+    }
+
+    public function messages(): array
+    {
+        return [
+            'codigo_vivienda.unique'                       => 'Este cÃ³digo de vivienda ya estÃ¡ registrado.',
+            'sede_id.exists'                                => 'La sede seleccionada no existe.',
+            'calle_id.exists'                               => 'La calle seleccionada no existe.',
+            'condicion_vivienda.in'                         => 'La condiciÃ³n debe ser: Ã³ptima, regular o crÃ­tica.',
+            'capacidad_bombona.in'                          => 'La capacidad debe ser: 10kg, 18kg o 43kg.',
+            'nombre_responsable.regex'                      => 'El responsable solo puede contener letras.',
+            'habitantes.*.nombres.regex'                    => 'Los nombres solo pueden contener letras.',
+            'habitantes.*.apellidos.regex'                  => 'Los apellidos solo pueden contener letras.',
+            'habitantes.*.cedula.distinct'                  => 'Hay cÃ©dulas repetidas entre los habitantes que estÃ¡s registrando.',
+            'habitantes.*.cedula.unique'                    => 'Una de las cÃ©dulas ya estÃ¡ registrada en el sistema.',
+            'habitantes.*.nombres.required_with'            => 'Cada habitante debe tener nombres.',
+            'habitantes.*.apellidos.required_with'          => 'Cada habitante debe tener apellidos.',
+            'habitantes.*.fecha_nacimiento.required_with'   => 'Cada habitante debe tener fecha de nacimiento.',
+            'habitantes.*.fecha_nacimiento.before'          => 'La fecha de nacimiento no puede ser futura.',
+            'habitantes.*.sexo.required_with'               => 'Debes seleccionar el sexo de cada habitante.',
+            'habitantes.*.nivel_educativo.required_with'    => 'Debes seleccionar el nivel de instrucciÃ³n de cada habitante.',
+        ];
+    }
+
+    /**
+     * CRÃTICO: Fuerza JSON en vez de redirect para la SPA React.
+     */
+    protected function failedValidation(Validator $validator): void
+    {
+        throw new HttpResponseException(
+            response()->json([
+                'message' => 'Los datos proporcionados no son vÃ¡lidos.',
+                'errors'  => $validator->errors(),
+            ], 422)
+        );
+    }
+
+    /**
+     * CRÃTICO: Fuerza JSON en vez de redirect para fallos de autorizaciÃ³n.
+     */
+    protected function failedAuthorization(): void
+    {
+        throw new HttpResponseException(
+            response()->json([
+                'message' => 'No tienes permiso para registrar familias.',
+                'errors'  => [],
+            ], 403)
+        );
+    }
+}
+
+=== C:\Users\vivia\Documents\SIGET_V2\app\Http\Requests\Familia\UpdateFamiliaRequest.php ===
+<?php
+
+namespace App\Http\Requests\Familia;
+
+use App\Models\Habitante;
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Contracts\Validation\Validator;
+use Illuminate\Http\Exceptions\HttpResponseException;
+use Illuminate\Validation\Rule;
+
+/**
+ * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ *  UpdateFamiliaRequest â€” CorrecciÃ³n del Rule::unique
+ * â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+ *  CORRECCIÃ“N CRÃTICA â€” La causa mÃ¡s probable del error 500:
+ *
+ *  VERSIÃ“N ANTERIOR (frÃ¡gil):
+ *    $familiaId = $this->route('familia')?->id;
+ *    Rule::unique('familias','codigo_vivienda')->ignore($familiaId)
+ *
+ *  PROBLEMA:
+ *    $this->route('familia') devuelve el modelo resuelto por Route
+ *    Model Binding. Si por cualquier razÃ³n (typo en la ruta, modelo
+ *    no encontrado) devuelve null, entonces ->ignore(null) no ignora
+ *    nada. El registro existente hace fallar la validaciÃ³n 'unique',
+ *    pero failedValidation() relanza como HttpResponseException.
+ *    Dependiendo de dÃ³nde falla, puede convertirse en un 500 en vez
+ *    de un 422.
+ *
+ *  VERSIÃ“N CORREGIDA (robusta):
+ *    Rule::unique('familias','codigo_vivienda')->ignore($this->route('familia'))
+ *
+ *    Cuando ->ignore() recibe un Model (no un ID entero), Laravel
+ *    extrae automÃ¡ticamente la PK del modelo. Esto es mÃ¡s seguro
+ *    porque si el modelo no se resolviÃ³, Route Model Binding ya
+ *    habrÃ­a devuelto 404 ANTES de que el Request se ejecute.
+ *    Si llega aquÃ­, el modelo existe y tiene ID vÃ¡lido.
+ *
+ *  DEFENSA ADICIONAL â€” whereNull('deleted_at'):
+ *    Con SoftDeletes, puede existir un registro borrado con el mismo
+ *    codigo_vivienda. Sin ->whereNull(), la validaciÃ³n 'unique'
+ *    fallarÃ­a aunque el registro estÃ© borrado lÃ³gicamente.
+ *    Con ->whereNull(), solo compara contra registros activos.
+ * â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+ *  CAMBIO (sept-2026) â€” Habitantes anidados en la ediciÃ³n:
+ *  El payload puede traer `habitantes[]`. Cada elemento puede
+ *  traer `id` (habitante existente que se edita) o no traerlo
+ *  (habitante nuevo agregado durante la ediciÃ³n). En
+ *  withValidator() se verifica que todo `id` recibido pertenezca
+ *  realmente a ESTA familia â€” evita que, por error de datos en el
+ *  frontend, se edite el habitante de otra familia desde este
+ *  formulario.
+ *
+ *  La unicidad de cÃ©dula NO se valida con la regla `unique` de
+ *  Laravel a nivel de array (no soporta "ignorar el registro N del
+ *  wildcard"), asÃ­ que se hace a mano en withValidator(),
+ *  excluyendo el propio id del habitante cuando aplica.
+ * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ */
+class UpdateFamiliaRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return $this->user()?->rol === 'admin'; // oct-2026: el rol operador se eliminÃ³
+    }
+
+    public function rules(): array
+    {
+        // $this->familia viene del Route Model Binding en la ruta
+        // PUT/PATCH /api/v1/familias/{familia}
+        $familia = $this->route('familia');
+
+        return [
+            'codigo_vivienda' => [
+                'sometimes', 'required', 'string', 'max:20',
+                Rule::unique('familias', 'codigo_vivienda')
+                    ->ignore($familia)
+                    ->whereNull('deleted_at'),
+            ],
+
+            'nombre_responsable' => [
+                'sometimes', 'required', 'string', 'max:100',
+                // Solo letras (con tildes/Ã±), espacios, apÃ³strofes y guiones
+                'regex:/^[\p{L}\s\'\-]+$/u',
+            ],
+            'sede_id' => ['sometimes', 'required', 'integer', 'exists:sedes,id'],
+            'calle_id' => ['sometimes', 'required', 'integer', 'exists:calles,id'],
+
+            'condicion_vivienda' => [
+                'sometimes',
+                'required',
+                'string',
+                'in:optima,regular,critica',
+            ],
+
+            'cantidad_bombonas' => [
+                'sometimes',
+                'required',
+                'integer',
+                'min:0',
+                'max:99',
+            ],
+
+            'capacidad_bombona' => [
+                'sometimes',
+                'required',
+                'string',
+                'in:10kg,18kg,43kg',
+            ],
+
+            'posee_agua_potable' => [
+                'sometimes',
+                'required',
+                'boolean',
+            ],
+
+            'posee_luz' => [
+                'sometimes',
+                'required',
+                'boolean',
+            ],
+
+            'posee_aseo' => [
+                'sometimes',
+                'required',
+                'boolean',
+            ],
+
+            'punto_referencia' => [
+                'sometimes',
+                'nullable',
+                'string',
+                'max:255',
+            ],
+
+            // â”€â”€ Habitantes de la familia (array opcional) â”€â”€â”€â”€â”€â”€â”€â”€
+            'habitantes' => [
+                'sometimes',
+                'array',
+            ],
+            'habitantes.*.id' => [
+                'sometimes',
+                'nullable',
+                'integer',
+                'exists:habitantes,id',
+            ],
+            'habitantes.*.cedula' => [
+                'nullable',
+                'string',
+                'max:15',
+                'distinct', // Sin cÃ©dulas repetidas dentro del mismo envÃ­o
+                // Unicidad contra la BD (ignorando el propio registro)
+                // se valida a mano en withValidator() â€” ver comentario arriba.
+            ],
+            'habitantes.*.nombres' => [
+                'required_with:habitantes',
+                'string',
+                'max:100',
+                'regex:/^[\p{L}\s\'\-]+$/u',
+            ],
+            'habitantes.*.apellidos' => [
+                'required_with:habitantes',
+                'string',
+                'max:100',
+                'regex:/^[\p{L}\s\'\-]+$/u',
+            ],
+            'habitantes.*.fecha_nacimiento' => [
+                'required_with:habitantes',
+                'date_format:Y-m-d',
+                'before:today',
+                'after:1900-01-01',
+            ],
+            'habitantes.*.sexo' => [
+                'required_with:habitantes',
+                'string',
+                'in:masculino,femenino,otro',
+            ],
+            'habitantes.*.es_discapacitado' => [
+                'required_with:habitantes',
+                'boolean',
+            ],
+            'habitantes.*.tipo_discapacidad' => [
+                'nullable',
+                'string',
+                'max:100',
+            ],
+            'habitantes.*.enfermedad_cronica' => [
+                'nullable',
+                'string',
+                'max:150',
+            ],
+            'habitantes.*.nivel_educativo' => [
+                'required_with:habitantes',
+                'string',
+                'in:ninguno,primaria,bachillerato,tecnico,universitario,postgrado',
+            ],
+        ];
+    }
+
+    /**
+     * ValidaciÃ³n cruzada por habitante: tipo_discapacidad condicional,
+     * pertenencia del id a esta familia, y unicidad de cÃ©dula contra
+     * la BD ignorando el propio registro.
+     */
+    public function withValidator(Validator $validator): void
+    {
+        $validator->after(function (Validator $validator) {
+            $familia    = $this->route('familia');
+            $habitantes = $this->input('habitantes', []);
+
+            // IDs de habitantes que realmente pertenecen a esta familia
+            $idsPropios = $familia
+                ? $familia->habitantes()->pluck('id')->all()
+                : [];
+
+            foreach ($habitantes as $i => $h) {
+                $id              = $h['id'] ?? null;
+                $tipo            = trim((string) ($h['tipo_discapacidad'] ?? ''));
+                $esDiscapacitado = filter_var($h['es_discapacitado'] ?? false, FILTER_VALIDATE_BOOLEAN);
+
+                // Tipo de discapacidad obligatorio si aplica
+                if ($esDiscapacitado && $tipo === '') {
+                    $validator->errors()->add(
+                        "habitantes.{$i}.tipo_discapacidad",
+                        'Debes describir el tipo de discapacidad.'
+                    );
+                }
+
+                // El id, si viene, debe pertenecer a ESTA familia
+                if ($id && !in_array($id, $idsPropios, true)) {
+                    $validator->errors()->add(
+                        "habitantes.{$i}.id",
+                        'Este habitante no pertenece a la familia que estÃ¡s editando.'
+                    );
+                }
+
+                // Unicidad de cÃ©dula contra la BD, ignorando el propio registro
+                $cedula = trim((string) ($h['cedula'] ?? ''));
+                if ($cedula !== '') {
+                    $existe = Habitante::where('cedula', $cedula)
+                        ->whereNull('deleted_at')
+                        ->when($id, fn ($q) => $q->where('id', '!=', $id))
+                        ->exists();
+
+                    if ($existe) {
+                        $validator->errors()->add(
+                            "habitantes.{$i}.cedula",
+                            'Esta cÃ©dula ya pertenece a otro habitante registrado.'
+                        );
+                    }
+                }
+            }
+        });
+    }
+
+    public function attributes(): array
+    {
+        return [
+            'codigo_vivienda'    => 'cÃ³digo de vivienda',
+            'nombre_responsable' => 'responsable de la familia',
+            'sede_id'            => 'sede',
+            'calle_id'           => 'calle',
+            'condicion_vivienda' => 'condiciÃ³n de la vivienda',
+            'cantidad_bombonas'  => 'cantidad de bombonas',
+            'capacidad_bombona'  => 'capacidad de bombona',
+            'posee_agua_potable' => 'agua potable',
+            'posee_luz'          => 'servicio de luz',
+            'posee_aseo'         => 'servicio de aseo',
+            'punto_referencia'   => 'punto de referencia',
+        ];
+    }
+
+    public function messages(): array
+    {
+        return [
+            'codigo_vivienda.unique'         => 'Este cÃ³digo de vivienda ya pertenece a otra familia.',
+            'sede_id.exists'                 => 'La sede seleccionada no existe.',
+            'calle_id.exists'                => 'La calle seleccionada no existe.',
+            'condicion_vivienda.in'          => 'La condiciÃ³n debe ser: Ã³ptima, regular o crÃ­tica.',
+            'capacidad_bombona.in'           => 'La capacidad debe ser: 10kg, 18kg o 43kg.',
+            'nombre_responsable.regex'       => 'El responsable solo puede contener letras.',
+            'habitantes.*.nombres.regex'     => 'Los nombres solo pueden contener letras.',
+            'habitantes.*.apellidos.regex'   => 'Los apellidos solo pueden contener letras.',
+            'habitantes.*.id.exists'         => 'Uno de los habitantes ya no existe.',
+            'habitantes.*.cedula.distinct'   => 'Hay cÃ©dulas repetidas entre los habitantes.',
+        ];
+    }
+
+    protected function failedValidation(Validator $validator): void
+    {
+        throw new HttpResponseException(
+            response()->json([
+                'message' => 'Los datos proporcionados no son vÃ¡lidos.',
+                'errors'  => $validator->errors(),
+            ], 422)
+        );
+    }
+
+    protected function failedAuthorization(): void
+    {
+        throw new HttpResponseException(
+            response()->json([
+                'message' => 'No tienes permiso para editar familias.',
+                'errors'  => [],
+            ], 403)
+        );
+    }
+}
+
+=== C:\Users\vivia\Documents\SIGET_V2\app\Http\Requests\Noticia\StoreNoticiaRequest.php ===
+<?php
+
+namespace App\Http\Requests\Noticia;
+
+use Illuminate\Contracts\Validation\Validator;
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Http\Exceptions\HttpResponseException;
+
+/**
+ * StoreNoticiaRequest
+ *
+ * Valida la creaciÃ³n de una nueva noticia.
+ * failedValidation() y failedAuthorization() sobrescritos
+ * obligatoriamente para retornar JSON en la API REST stateless.
+ */
+class StoreNoticiaRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return true; // La autorizaciÃ³n la maneja el middleware role:
+    }
+
+    public function rules(): array
+    {
+        return [
+            'titulo'    => ['required', 'string', 'max:200'],
+            'contenido' => ['required', 'string'],
+            'publicado' => ['sometimes', 'boolean'],
+        ];
+    }
+
+    public function messages(): array
+    {
+        return [
+            'titulo.required'    => 'El tÃ­tulo de la noticia es obligatorio.',
+            'titulo.max'         => 'El tÃ­tulo no puede superar los 200 caracteres.',
+            'contenido.required' => 'El contenido de la noticia es obligatorio.',
+        ];
+    }
+
+    protected function failedValidation(Validator $validator): void
+    {
+        throw new HttpResponseException(
+            response()->json([
+                'message' => 'Los datos proporcionados no son vÃ¡lidos.',
+                'errors'  => $validator->errors(),
+            ], 422)
+        );
+    }
+
+    protected function failedAuthorization(): void
+    {
+        throw new HttpResponseException(
+            response()->json(['message' => 'No autorizado.'], 403)
+        );
+    }
+}
+
+=== C:\Users\vivia\Documents\SIGET_V2\app\Http\Requests\Noticia\UpdateNoticiaRequest.php ===
+<?php
+
+namespace App\Http\Requests\Noticia;
+
+use Illuminate\Contracts\Validation\Validator;
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Http\Exceptions\HttpResponseException;
+
+/**
+ * UpdateNoticiaRequest
+ *
+ * Valida la actualizaciÃ³n de una noticia existente.
+ * IdÃ©ntico al Store pero con 'sometimes' para permitir
+ * actualizaciones parciales (solo cambiar publicado, por ejemplo).
+ */
+class UpdateNoticiaRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return true;
+    }
+
+    public function rules(): array
+    {
+        return [
+            'titulo'    => ['sometimes', 'required', 'string', 'max:200'],
+            'contenido' => ['sometimes', 'required', 'string'],
+            'publicado' => ['sometimes', 'boolean'],
+        ];
+    }
+
+    public function messages(): array
+    {
+        return [
+            'titulo.required'    => 'El tÃ­tulo de la noticia es obligatorio.',
+            'titulo.max'         => 'El tÃ­tulo no puede superar los 200 caracteres.',
+            'contenido.required' => 'El contenido de la noticia es obligatorio.',
+        ];
+    }
+
+    protected function failedValidation(Validator $validator): void
+    {
+        throw new HttpResponseException(
+            response()->json([
+                'message' => 'Los datos proporcionados no son vÃ¡lidos.',
+                'errors'  => $validator->errors(),
+            ], 422)
+        );
+    }
+
+    protected function failedAuthorization(): void
+    {
+        throw new HttpResponseException(
+            response()->json(['message' => 'No autorizado.'], 403)
+        );
+    }
+}
+
+=== C:\Users\vivia\Documents\SIGET_V2\app\Http\Requests\Organizacion\StoreOrganizacionRequest.php ===
+<?php
+
+namespace App\Http\Requests\Organizacion;
+
+use App\Models\Organizacion;
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
+
+class StoreOrganizacionRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return $this->user()?->esAdmin() ?? false;
+    }
+
+    public function rules(): array
+    {
+        return [
+            'nombre'        => ['required', 'string', 'max:150'],
+            'tipo_servicio' => ['required', Rule::in(array_keys(Organizacion::TIPOS_SERVICIO))],
+            'contacto'      => ['nullable', 'string', 'max:100'],
+            'descripcion'   => ['nullable', 'string', 'max:1000'],
+            'estatus'       => ['boolean'],
+        ];
+    }
+
+    public function messages(): array
+    {
+        return [
+            'nombre.required'        => 'El nombre de la organizaciÃ³n es obligatorio.',
+            'tipo_servicio.required' => 'El tipo de servicio es obligatorio.',
+            'tipo_servicio.in'       => 'El tipo de servicio seleccionado no es vÃ¡lido.',
+        ];
+    }
+
+    protected function failedAuthorization(): never
+    {
+        throw new \Illuminate\Auth\Access\AuthorizationException(
+            'Solo administradores pueden registrar organizaciones.'
+        );
+    }
+}
+
+=== C:\Users\vivia\Documents\SIGET_V2\app\Http\Requests\Organizacion\UpdateOrganizacionRequest.php ===
+<?php
+
+namespace App\Http\Requests\Organizacion;
+
+use App\Models\Organizacion;
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
+
+class UpdateOrganizacionRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return $this->user()?->esAdmin() ?? false;
+    }
+
+    public function rules(): array
+    {
+        return [
+            'nombre'        => ['sometimes', 'string', 'max:150'],
+            'tipo_servicio' => ['sometimes', Rule::in(array_keys(Organizacion::TIPOS_SERVICIO))],
+            'contacto'      => ['nullable', 'string', 'max:100'],
+            'descripcion'   => ['nullable', 'string', 'max:1000'],
+            'estatus'       => ['sometimes', 'boolean'],
+        ];
+    }
+
+    protected function failedAuthorization(): never
+    {
+        throw new \Illuminate\Auth\Access\AuthorizationException(
+            'Solo administradores pueden editar organizaciones.'
+        );
+    }
+}
+
+=== C:\Users\vivia\Documents\SIGET_V2\app\Http\Requests\PagoQr\StorePagoQrRequest.php ===
+<?php
+
+namespace App\Http\Requests\PagoQr;
+
+use App\Models\CuentaPago;
+use Illuminate\Contracts\Validation\Validator;
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Http\Exceptions\HttpResponseException;
+use Illuminate\Validation\Rule;
+
+/**
+ * StorePagoQrRequest â€” SIGET
+ * Ruta fÃ­sica: app/Http/Requests/PagoQr/StorePagoQrRequest.php
+ *
+ * Usado por PagoQrController::store() â€” POST /v1/pagos, el flujo de
+ * admin: registrar un pago A NOMBRE DE UN HABITANTE (el
+ * ciudadano sin usuario en el Portal, o que pagÃ³ en persona).
+ *
+ * CAMBIO (oct-2026, PagoForm por pasos): este request quedÃ³ alineado
+ * con StorePagoUsuarioRequest (Portal Ciudadano):
+ *   - cuenta_pago_id y metodo_pago son obligatorios, y el mÃ©todo debe
+ *     coincidir con el REAL de la cuenta elegida. Antes no se enviaban
+ *     y la columna caÃ­a al default 'pago_movil': toda transferencia
+ *     registrada por el admin quedaba guardada como "Pago mÃ³vil".
+ *   - banco_origen es obligatorio solo para transferencia.
+ *   - el comprobante es obligatorio y la fecha no puede tener mÃ¡s de
+ *     30 dÃ­as de antigÃ¼edad (mismas reglas que el Portal).
+ *   - familia_id y organizacion_id ya NO se aceptan del cliente:
+ *     familia_id se deduce del habitante en el servidor.
+ *   - habitante_id debe existir y NO estar dado de baja.
+ *
+ * authorize(): defensa en profundidad ademÃ¡s del middleware de la ruta
+ * (Capa 3, solo admin). El rol operador se eliminÃ³ en oct-2026 (14.7-E, Fase 1).
+ */
+class StorePagoQrRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return $this->user()?->rol === 'admin';
+    }
+
+    public function rules(): array
+    {
+        return [
+            // 'deleted_at,NULL': un habitante dado de baja no puede recibir pagos nuevos
+            'habitante_id'        => ['required', 'integer', 'exists:habitantes,id,deleted_at,NULL'],
+            // cuenta existente, activa y no dada de baja
+            'cuenta_pago_id'      => ['required', 'integer', 'exists:cuentas_pago,id,activa,1,deleted_at,NULL'],
+            'metodo_pago'         => ['required', 'string', Rule::in(CuentaPago::METODOS)],
+            'banco_origen'        => ['required_if:metodo_pago,transferencia', 'nullable', 'string', 'max:100'],
+            'referencia_bancaria' => ['required', 'string', 'max:100', 'unique:pagos_qr,referencia_bancaria'],
+            'monto'               => ['required', 'numeric', 'min:0.01', 'max:999999.99'],
+            'concepto_pago'       => ['required', 'string', 'max:200'],
+            'fecha_pago'          => ['required', 'date', 'before_or_equal:now', 'after_or_equal:' . now()->subDays(30)->toDateString()],
+            // Comprobante obligatorio: imagen JPG/PNG/WEBP mÃ¡x. 5 MB
+            'comprobante'         => ['required', 'file', 'mimes:jpg,jpeg,png,webp', 'max:5120'],
+        ];
+    }
+
+    /**
+     * El mÃ©todo declarado debe coincidir con el mÃ©todo REAL de la
+     * cuenta elegida: no se confÃ­a en lo que mande el cliente.
+     */
+    public function withValidator(Validator $validator): void
+    {
+        $validator->after(function (Validator $validator) {
+            $cuentaId = $this->input('cuenta_pago_id');
+            $metodo   = $this->input('metodo_pago');
+
+            if (! $cuentaId || ! $metodo) {
+                return; // ya lo marcÃ³ 'required'
+            }
+
+            $cuenta = CuentaPago::find($cuentaId);
+
+            if ($cuenta && $cuenta->metodo !== $metodo) {
+                $validator->errors()->add(
+                    'metodo_pago',
+                    'El mÃ©todo de pago no corresponde a la cuenta seleccionada.'
+                );
+            }
+        });
+    }
+
+    public function messages(): array
+    {
+        return [
+            'habitante_id.required'        => 'Debes seleccionar el habitante que realizÃ³ el pago.',
+            'habitante_id.exists'          => 'El habitante seleccionado no existe o fue dado de baja.',
+            'cuenta_pago_id.required'      => 'Debes seleccionar la cuenta de pago a la que corresponde el pago.',
+            'cuenta_pago_id.exists'        => 'La cuenta de pago seleccionada no es vÃ¡lida o ya no estÃ¡ disponible.',
+            'metodo_pago.required'         => 'Debes indicar el mÃ©todo de pago.',
+            'metodo_pago.in'               => 'El mÃ©todo de pago no es vÃ¡lido.',
+            'banco_origen.required_if'     => 'Debes indicar desde quÃ© banco se realizÃ³ la transferencia.',
+            'referencia_bancaria.required' => 'Debes indicar el nÃºmero de referencia del pago.',
+            'referencia_bancaria.unique'   => 'Esta referencia bancaria ya fue registrada.',
+            'monto.required'               => 'Debes indicar el monto pagado.',
+            'monto.min'                    => 'El monto debe ser mayor a cero.',
+            'concepto_pago.required'       => 'Debes indicar el concepto del pago.',
+            'comprobante.required'         => 'Debes adjuntar una imagen del comprobante de pago.',
+            'comprobante.mimes'            => 'El comprobante debe ser una imagen JPG, PNG o WEBP.',
+            'comprobante.max'              => 'El comprobante no puede superar los 5 MB.',
+            'fecha_pago.before_or_equal'   => 'La fecha del pago no puede ser futura.',
+            'fecha_pago.after_or_equal'    => 'La fecha del pago no puede tener mÃ¡s de 30 dÃ­as de antigÃ¼edad.',
+        ];
+    }
+
+    protected function failedValidation(Validator $validator): void
+    {
+        throw new HttpResponseException(
+            response()->json([
+                'message' => 'Los datos proporcionados no son vÃ¡lidos.',
+                'errors'  => $validator->errors(),
+            ], 422)
+        );
+    }
+
+    protected function failedAuthorization(): void
+    {
+        throw new HttpResponseException(
+            response()->json(['message' => 'No autorizado.'], 403)
+        );
+    }
+}
+
+=== C:\Users\vivia\Documents\SIGET_V2\app\Http\Requests\PagoQr\StorePagoUsuarioRequest.php ===
+<?php
+
+namespace App\Http\Requests\PagoQr;
+
+use App\Models\CuentaPago;
+use Illuminate\Contracts\Validation\Validator;
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Http\Exceptions\HttpResponseException;
+use Illuminate\Validation\Rule;
+
+/**
+ * StorePagoUsuarioRequest â€” SIGET
+ * Ruta fÃ­sica: app/Http/Requests/PagoQr/StorePagoUsuarioRequest.php
+ *
+ * Usado exclusivamente por PagoQrController::storeUsuario() â€”
+ * el endpoint del Portal Ciudadano (POST /v1/pagos/mio).
+ *
+ * 'exists:cuentas_pago,id,activa,1' valida que la cuenta exista Y
+ * estÃ© activa â€” evita que alguien envÃ­e un pago a una cuenta que el
+ * admin desactivÃ³ despuÃ©s de que el usuario cargÃ³ la pÃ¡gina.
+ *
+ * CAMBIO (sept-2026, correcciÃ³n 2 del profesor: proceso de pago) â€”
+ * El asistente por pasos del Portal Ciudadano ahora envÃ­a tambiÃ©n
+ * `metodo_pago` (el mÃ©todo que el ciudadano eligiÃ³ en el paso 1) y
+ * `banco_origen` (obligatorio solo para transferencia, para que el
+ * operador pueda conciliar). `metodo_pago` DEBE coincidir con el
+ * mÃ©todo real de la cuenta elegida â€” withValidator() lo comprueba
+ * despuÃ©s de las reglas bÃ¡sicas, para no confiar en lo que mandÃ³ el
+ * cliente si no coincide con lo que el admin configurÃ³.
+ */
+class StorePagoUsuarioRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return $this->user() !== null; // cualquier rol autenticado
+    }
+
+    public function rules(): array
+    {
+        return [
+            'cuenta_pago_id'      => ['required', 'integer', 'exists:cuentas_pago,id,activa,1'],
+            'metodo_pago'         => ['required', 'string', Rule::in(CuentaPago::METODOS)],
+            'banco_origen'        => ['required_if:metodo_pago,transferencia', 'nullable', 'string', 'max:100'],
+            'referencia_bancaria' => ['required', 'string', 'max:100', 'unique:pagos_qr,referencia_bancaria'],
+            'monto'               => ['required', 'numeric', 'min:0.01', 'max:999999.99'],
+            'concepto_pago'       => ['required', 'string', 'max:200'],
+            'fecha_pago'          => ['required', 'date', 'before_or_equal:now', 'after_or_equal:' . now()->subDays(30)->toDateString()],
+            // Comprobante obligatorio para el ciudadano
+            'comprobante'         => ['required', 'file', 'mimes:jpg,jpeg,png,webp', 'max:5120'],
+        ];
+    }
+
+    /**
+     * El mÃ©todo declarado por el cliente debe coincidir con el mÃ©todo
+     * REAL de la cuenta elegida. Sin esto, alguien podrÃ­a marcar
+     * "transferencia" sobre una cuenta de pago mÃ³vil (o viceversa) y
+     * el operador verÃ­a datos inconsistentes al conciliar.
+     */
+    public function withValidator(Validator $validator): void
+    {
+        $validator->after(function (Validator $validator) {
+            $cuentaId = $this->input('cuenta_pago_id');
+            $metodo   = $this->input('metodo_pago');
+
+            if (! $cuentaId || ! $metodo) {
+                return; // ya lo marcÃ³ 'required'
+            }
+
+            $cuenta = CuentaPago::find($cuentaId);
+
+            if ($cuenta && $cuenta->metodo !== $metodo) {
+                $validator->errors()->add(
+                    'metodo_pago',
+                    'El mÃ©todo de pago no corresponde a la cuenta seleccionada.'
+                );
+            }
+        });
+    }
+
+    public function messages(): array
+    {
+        return [
+            'cuenta_pago_id.required'      => 'Debes seleccionar a quÃ© cuenta de pago corresponde tu pago.',
+            'cuenta_pago_id.exists'        => 'La cuenta de pago seleccionada no es vÃ¡lida o ya no estÃ¡ disponible.',
+            'metodo_pago.required'         => 'Debes indicar el mÃ©todo de pago.',
+            'metodo_pago.in'               => 'El mÃ©todo de pago no es vÃ¡lido.',
+            'banco_origen.required_if'     => 'Debes indicar desde quÃ© banco realizaste la transferencia.',
+            'referencia_bancaria.required' => 'Debes indicar el nÃºmero de referencia del pago.',
+            'referencia_bancaria.unique'   => 'Esta referencia bancaria ya fue registrada.',
+            'monto.required'               => 'Debes indicar el monto pagado.',
+            'monto.min'                    => 'El monto debe ser mayor a cero.',
+            'concepto_pago.required'       => 'Debes indicar el concepto del pago.',
+            'comprobante.required'         => 'Debes adjuntar una imagen del comprobante de pago.',
+            'comprobante.mimes'            => 'El comprobante debe ser una imagen JPG, PNG o WEBP.',
+            'comprobante.max'              => 'El comprobante no puede superar los 5 MB.',
+            'fecha_pago.before_or_equal'   => 'La fecha del pago no puede ser futura.',
+            'fecha_pago.after_or_equal'    => 'La fecha del pago no puede tener mÃ¡s de 30 dÃ­as de antigÃ¼edad.',
+        ];
+    }
+
+    protected function failedValidation(Validator $validator): void
+    {
+        throw new HttpResponseException(
+            response()->json([
+                'message' => 'Los datos proporcionados no son vÃ¡lidos.',
+                'errors'  => $validator->errors(),
+            ], 422)
+        );
+    }
+
+    protected function failedAuthorization(): void
+    {
+        throw new HttpResponseException(
+            response()->json(['message' => 'No autorizado.'], 403)
+        );
+    }
+}
+
+=== C:\Users\vivia\Documents\SIGET_V2\app\Http\Requests\PagoQr\ValidarPagoQrRequest.php ===
+<?php
+
+namespace App\Http\Requests\PagoQr;
+
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Validation\Rule;
+
+/**
+ * Solo admin y vocero pueden validar pagos.
+ *
+ * CAMBIO (sept-2026, correcciÃ³n 3 del profesor: seguridad de roles) â€”
+ * antes usaba esOperador() (admin+operador), lo que contradecÃ­a la
+ * tabla de roles del documento y dejaba fuera al vocero. El operador
+ * se eliminarÃ¡ mÃ¡s adelante, asÃ­ que no se le agrega esta capacidad
+ * ahora. Ver User::puedeValidarPagos().
+ *
+ * Si el estado es 'rechazado', el motivo_rechazo es obligatorio.
+ */
+class ValidarPagoQrRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return $this->user()?->puedeValidarPagos() ?? false; // admin + vocero
+    }
+
+    public function rules(): array
+    {
+        return [
+            'estado'          => ['required', Rule::in(['verificado', 'rechazado'])],
+            'motivo_rechazo'  => [
+                Rule::requiredIf($this->input('estado') === 'rechazado'),
+                'nullable', 'string', 'max:255',
+            ],
+        ];
+    }
+
+    public function messages(): array
+    {
+        return [
+            'estado.in'               => 'El estado debe ser verificado o rechazado.',
+            'motivo_rechazo.required' => 'Debes indicar el motivo del rechazo.',
+        ];
+    }
+
+    protected function failedAuthorization(): never
+    {
+        throw new \Illuminate\Auth\Access\AuthorizationException(
+            'Solo operadores y administradores pueden validar pagos.'
+        );
+    }
+}
+
+=== C:\Users\vivia\Documents\SIGET_V2\app\Http\Requests\Proyecto\StoreProyectoRequest.php ===
+<?php
+
+namespace App\Http\Requests\Proyecto;
+
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Contracts\Validation\Validator;
+use Illuminate\Http\Exceptions\HttpResponseException;
+
+class StoreProyectoRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return true;
+    }
+
+    public function rules(): array
+    {
+        return [
+            'nombre_proyecto'       => ['required', 'string', 'max:200'],
+            'objetivo'              => ['required', 'string'],
+            'monto_aprobado'        => ['nullable', 'numeric', 'min:0', 'max:9999999999999.99'],
+            'fuente_financiamiento' => ['required', 'in:CFG,Alcaldia,Gobernacion,Autogestion'],
+            'estatus'               => ['required', 'in:presentado,aprobado,en_ejecucion,finalizado,paralizado'],
+            'fecha_inicio'          => ['nullable', 'date'],
+            'fecha_fin'             => ['nullable', 'date', 'after_or_equal:fecha_inicio'],
+            'sede_id'               => ['nullable', 'integer', 'exists:sedes,id'],
+            'comite_id'             => ['nullable', 'integer', 'exists:comites,id'],
+        ];
+    }
+
+    public function messages(): array
+    {
+        return [
+            'nombre_proyecto.required'       => 'El nombre del proyecto es obligatorio.',
+            'nombre_proyecto.max'            => 'El nombre no puede superar los 200 caracteres.',
+            'objetivo.required'              => 'El objetivo del proyecto es obligatorio.',
+            'fuente_financiamiento.required' => 'La fuente de financiamiento es obligatoria.',
+            'fuente_financiamiento.in'       => 'La fuente debe ser: CFG, AlcaldÃ­a, GobernaciÃ³n o AutogestiÃ³n.',
+            'estatus.required'               => 'El estatus del proyecto es obligatorio.',
+            'estatus.in'                     => 'Estatus no vÃ¡lido.',
+            'fecha_fin.after_or_equal'       => 'La fecha de fin debe ser igual o posterior a la fecha de inicio.',
+            'sede_id.exists'                 => 'La sede seleccionada no existe.',
+            'comite_id.exists'               => 'El comitÃ© seleccionado no existe.',
+        ];
+    }
+
+    // â”€â”€â”€ Regla 3.3: Forzar respuesta JSON (nunca redirect HTML) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    protected function failedValidation(Validator $validator): never
+    {
+        throw new HttpResponseException(
+            response()->json([
+                'message' => 'Error de validaciÃ³n.',
+                'errors'  => $validator->errors(),
+            ], 422)
+        );
+    }
+
+    protected function failedAuthorization(): never
+    {
+        throw new HttpResponseException(
+            response()->json([
+                'message' => 'No autorizado.',
+            ], 403)
+        );
+    }
+}
+
+=== C:\Users\vivia\Documents\SIGET_V2\app\Http\Requests\Proyecto\UpdateProyectoRequest.php ===
+<?php
+
+namespace App\Http\Requests\Proyecto;
+
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Contracts\Validation\Validator;
+use Illuminate\Http\Exceptions\HttpResponseException;
+
+class UpdateProyectoRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return true;
+    }
+
+    public function rules(): array
+    {
+        return [
+            'nombre_proyecto'       => ['sometimes', 'required', 'string', 'max:200'],
+            'objetivo'              => ['sometimes', 'required', 'string'],
+            'monto_aprobado'        => ['nullable', 'numeric', 'min:0', 'max:9999999999999.99'],
+            'fuente_financiamiento' => ['sometimes', 'required', 'in:CFG,Alcaldia,Gobernacion,Autogestion'],
+            'estatus'               => ['sometimes', 'required', 'in:presentado,aprobado,en_ejecucion,finalizado,paralizado'],
+            'fecha_inicio'          => ['nullable', 'date'],
+            'fecha_fin'             => ['nullable', 'date', 'after_or_equal:fecha_inicio'],
+            'sede_id'               => ['nullable', 'integer', 'exists:sedes,id'],
+            'comite_id'             => ['nullable', 'integer', 'exists:comites,id'],
+        ];
+    }
+
+    public function messages(): array
+    {
+        return [
+            'nombre_proyecto.required'       => 'El nombre del proyecto es obligatorio.',
+            'nombre_proyecto.max'            => 'El nombre no puede superar los 200 caracteres.',
+            'objetivo.required'              => 'El objetivo del proyecto es obligatorio.',
+            'fuente_financiamiento.required' => 'La fuente de financiamiento es obligatoria.',
+            'fuente_financiamiento.in'       => 'La fuente debe ser: CFG, AlcaldÃ­a, GobernaciÃ³n o AutogestiÃ³n.',
+            'estatus.required'               => 'El estatus del proyecto es obligatorio.',
+            'estatus.in'                     => 'Estatus no vÃ¡lido.',
+            'fecha_fin.after_or_equal'       => 'La fecha de fin debe ser igual o posterior a la fecha de inicio.',
+            'sede_id.exists'                 => 'La sede seleccionada no existe.',
+            'comite_id.exists'               => 'El comitÃ© seleccionado no existe.',
+        ];
+    }
+
+    // â”€â”€â”€ Regla 3.3: Forzar respuesta JSON â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    protected function failedValidation(Validator $validator): never
+    {
+        throw new HttpResponseException(
+            response()->json([
+                'message' => 'Error de validaciÃ³n.',
+                'errors'  => $validator->errors(),
+            ], 422)
+        );
+    }
+
+    protected function failedAuthorization(): never
+    {
+        throw new HttpResponseException(
+            response()->json([
+                'message' => 'No autorizado.',
+            ], 403)
+        );
+    }
+}
+
+=== C:\Users\vivia\Documents\SIGET_V2\app\Http\Requests\Sugerencia\RevisarSugerenciaRequest.php ===
+<?php
+
+namespace App\Http\Requests\Sugerencia;
+
+use Illuminate\Contracts\Validation\Validator;
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Http\Exceptions\HttpResponseException;
+
+/**
+ * RevisarSugerenciaRequest
+ *
+ * Valida la acciÃ³n de marcar una sugerencia como revisada.
+ * La respuesta es opcional â€” se puede marcar revisada sin responder,
+ * pero si se incluye respuesta debe tener contenido significativo.
+ */
+class RevisarSugerenciaRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return true;
+    }
+
+    public function rules(): array
+    {
+        return [
+            'respuesta' => ['nullable', 'string', 'min:5', 'max:500'],
+            'prioridad' => ['sometimes', 'in:baja,media,alta'],
+        ];
+    }
+
+    public function messages(): array
+    {
+        return [
+            'respuesta.min' => 'La respuesta debe tener al menos 5 caracteres.',
+            'respuesta.max' => 'La respuesta no puede superar los 500 caracteres.',
+            'prioridad.in'  => 'La prioridad seleccionada no es vÃ¡lida.',
+        ];
+    }
+
+    protected function failedValidation(Validator $validator): void
+    {
+        throw new HttpResponseException(
+            response()->json([
+                'message' => 'Los datos proporcionados no son vÃ¡lidos.',
+                'errors'  => $validator->errors(),
+            ], 422)
+        );
+    }
+
+    protected function failedAuthorization(): void
+    {
+        throw new HttpResponseException(
+            response()->json(['message' => 'No autorizado.'], 403)
+        );
+    }
+}
+
+=== C:\Users\vivia\Documents\SIGET_V2\app\Http\Requests\Sugerencia\StoreSugerenciaRequest.php ===
+<?php
+
+namespace App\Http\Requests\Sugerencia;
+
+use Illuminate\Contracts\Validation\Validator;
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Http\Exceptions\HttpResponseException;
+
+/**
+ * StoreSugerenciaRequest
+ *
+ * Valida el envÃ­o de una nueva sugerencia.
+ * Cualquier rol autenticado puede enviar sugerencias.
+ */
+class StoreSugerenciaRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return true;
+    }
+
+    public function rules(): array
+    {
+        return [
+            'mensaje'   => ['required', 'string', 'min:10', 'max:1000'],
+            'categoria' => ['required', 'in:mejora,queja,consulta,emergencia'],
+            'prioridad' => ['sometimes', 'in:baja,media,alta'],
+        ];
+    }
+
+    public function messages(): array
+    {
+        return [
+            'mensaje.required'  => 'El mensaje es obligatorio.',
+            'mensaje.min'       => 'El mensaje debe tener al menos 10 caracteres.',
+            'mensaje.max'       => 'El mensaje no puede superar los 1000 caracteres.',
+            'categoria.required'=> 'Debes seleccionar una categorÃ­a.',
+            'categoria.in'      => 'La categorÃ­a seleccionada no es vÃ¡lida.',
+            'prioridad.in'      => 'La prioridad seleccionada no es vÃ¡lida.',
+        ];
+    }
+
+    protected function failedValidation(Validator $validator): void
+    {
+        throw new HttpResponseException(
+            response()->json([
+                'message' => 'Los datos proporcionados no son vÃ¡lidos.',
+                'errors'  => $validator->errors(),
+            ], 422)
+        );
+    }
+
+    protected function failedAuthorization(): void
+    {
+        throw new HttpResponseException(
+            response()->json(['message' => 'No autorizado.'], 403)
+        );
+    }
+}
+
+=== C:\Users\vivia\Documents\SIGET_V2\app\Http\Requests\Usuario\CambiarEstadoRequest.php ===
+<?php
+
+namespace App\Http\Requests\Usuario;
+
+use Illuminate\Contracts\Validation\Validator;
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Http\Exceptions\HttpResponseException;
+
+/**
+ * Activar / desactivar una cuenta â€” PATCH /api/v1/usuarios/{usuario}/estado
+ * Body: { "activo": true|false }. Solo admin.
+ */
+class CambiarEstadoRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return (bool) $this->user()?->esAdmin();
+    }
+
+    public function rules(): array
+    {
+        return [
+            'activo' => ['required', 'boolean'],
+        ];
+    }
+
+    public function messages(): array
+    {
+        return [
+            'activo.required' => 'Debes indicar si la cuenta queda activa o desactivada.',
+            'activo.boolean'  => 'El estado indicado no es vÃ¡lido.',
+        ];
+    }
+
+    protected function failedValidation(Validator $validator): void
+    {
+        throw new HttpResponseException(response()->json([
+            'message' => 'Los datos proporcionados no son vÃ¡lidos.',
+            'errors'  => $validator->errors(),
+        ], 422));
+    }
+
+    protected function failedAuthorization(): void
+    {
+        throw new HttpResponseException(response()->json([
+            'message' => 'No tienes permiso para realizar esta acciÃ³n.',
+            'errors'  => [],
+        ], 403));
+    }
+}
+
+=== C:\Users\vivia\Documents\SIGET_V2\app\Http\Requests\Usuario\CambiarRolRequest.php ===
+<?php
+
+namespace App\Http\Requests\Usuario;
+
+use App\Http\Controllers\Api\V1\UsuarioController;
+use Illuminate\Contracts\Validation\Validator;
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Http\Exceptions\HttpResponseException;
+use Illuminate\Validation\Rule;
+
+/**
+ * Cambio de rol de un usuario â€” PATCH /api/v1/usuarios/{usuario}/rol
+ * Solo admin. Las reglas de negocio (no cambiarse a sÃ­ mismo, Ãºltimo
+ * admin) viven en UsuarioController porque dependen del estado de la BD.
+ */
+class CambiarRolRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return (bool) $this->user()?->esAdmin();
+    }
+
+    public function rules(): array
+    {
+        return [
+            'rol' => ['required', 'string', Rule::in(UsuarioController::ROLES)],
+        ];
+    }
+
+    public function messages(): array
+    {
+        return [
+            'rol.required' => 'Debes indicar el nuevo rol.',
+            'rol.in'       => 'El rol indicado no es vÃ¡lido.',
+        ];
+    }
+
+    protected function failedValidation(Validator $validator): void
+    {
+        throw new HttpResponseException(response()->json([
+            'message' => 'Los datos proporcionados no son vÃ¡lidos.',
+            'errors'  => $validator->errors(),
+        ], 422));
+    }
+
+    protected function failedAuthorization(): void
+    {
+        throw new HttpResponseException(response()->json([
+            'message' => 'No tienes permiso para realizar esta acciÃ³n.',
+            'errors'  => [],
+        ], 403));
+    }
+}
+
+=== C:\Users\vivia\Documents\SIGET_V2\app\Http\Requests\Vocero\StoreVoceroRequest.php ===
+<?php
+
+namespace App\Http\Requests\Vocero;
+
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Contracts\Validation\Validator;
+use Illuminate\Http\Exceptions\HttpResponseException;
+use Illuminate\Validation\Rule;
+
+/**
+ * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ *  StoreVoceroRequest
+ * â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+ *  VALIDACIÃ“N CRÃTICA â€” habitante Ãºnico en voceros activos:
+ *
+ *  Un habitante no puede ser vocero activo en dos cargos a la vez.
+ *  La regla unique estÃ¡ndar de Laravel no permite condiciones
+ *  adicionales (WHERE esta_activo = true), por eso usamos Rule::unique
+ *  con ->where() para agregar esa condiciÃ³n.
+ *
+ *  Rule::unique('voceros','habitante_id')->where('esta_activo', true)
+ *  â†’ "habitante_id debe ser Ãºnico en la tabla voceros,
+ *     pero solo entre los registros donde esta_activo = true"
+ *
+ *  Esto permite que un habitante que fue vocero (inactivo) vuelva
+ *  a ser registrado como vocero activo sin conflicto.
+ * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ */
+class StoreVoceroRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return $this->user()?->rol === 'admin'; // oct-2026: el rol operador se eliminÃ³
+    }
+
+    public function rules(): array
+    {
+        return [
+            'habitante_id' => [
+                'required',
+                'integer',
+                'exists:habitantes,id',
+                // Un habitante solo puede tener UN cargo activo a la vez
+                Rule::unique('voceros', 'habitante_id')
+                    ->where(fn ($q) => $q->where('esta_activo', true)),
+            ],
+            'sede_id' => [
+                'required',
+                'integer',
+                'exists:sedes,id',
+            ],
+            'comite_id' => [
+                'nullable',
+                'integer',
+                'exists:comites,id',
+            ],
+            'unidad_comunal' => [
+                'required',
+                'string',
+                'max:150',
+            ],
+            'fecha_eleccion' => [
+                'required',
+                'date_format:Y-m-d',
+                'before_or_equal:today',
+            ],
+            'fecha_fin' => [
+                'nullable',
+                'date_format:Y-m-d',
+                'after:fecha_eleccion',
+            ],
+            'esta_activo' => [
+                'boolean',
+            ],
+        ];
+    }
+
+    public function attributes(): array
+    {
+        return [
+            'habitante_id'   => 'habitante',
+            'sede_id'        => 'sede',
+            'comite_id'      => 'comitÃ©',
+            'unidad_comunal' => 'unidad comunal',
+            'fecha_eleccion' => 'fecha de elecciÃ³n',
+            'fecha_fin'      => 'fecha de fin de mandato',
+            'esta_activo'    => 'estado activo',
+        ];
+    }
+
+    public function messages(): array
+    {
+        return [
+            'habitante_id.unique'        => 'Este habitante ya tiene un cargo de vocero activo. Debe finalizar el mandato anterior antes de asignar uno nuevo.',
+            'habitante_id.exists'        => 'El habitante seleccionado no existe en el padrÃ³n.',
+            'sede_id.exists'             => 'La sede seleccionada no existe.',
+            'comite_id.exists'           => 'El comitÃ© seleccionado no existe.',
+            'fecha_eleccion.before_or_equal' => 'La fecha de elecciÃ³n no puede ser futura.',
+            'fecha_fin.after'            => 'La fecha de fin debe ser posterior a la fecha de elecciÃ³n.',
+        ];
+    }
+
+    protected function failedValidation(Validator $validator): void
+    {
+        throw new HttpResponseException(
+            response()->json([
+                'message' => 'Los datos proporcionados no son vÃ¡lidos.',
+                'errors'  => $validator->errors(),
+            ], 422)
+        );
+    }
+
+    protected function failedAuthorization(): void
+    {
+        throw new HttpResponseException(
+            response()->json([
+                'message' => 'No tienes permiso para registrar voceros.',
+                'errors'  => [],
+            ], 403)
+        );
+    }
+}
+
+=== C:\Users\vivia\Documents\SIGET_V2\app\Http\Requests\Vocero\UpdateVoceroRequest.php ===
+<?php
+
+namespace App\Http\Requests\Vocero;
+
+use Illuminate\Foundation\Http\FormRequest;
+use Illuminate\Contracts\Validation\Validator;
+use Illuminate\Http\Exceptions\HttpResponseException;
+use Illuminate\Validation\Rule;
+
+/**
+ * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ *  UpdateVoceroRequest
+ * â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+ *  DIFERENCIA vs StoreVoceroRequest:
+ *  La regla unique del habitante_id debe ignorar al vocero actual
+ *  para que el update del mismo cargo no falle por "duplicado".
+ *
+ *  Caso de uso: editar la unidad_comunal o la fecha_fin de un vocero
+ *  sin cambiar el habitante â†’ la regla unique pasarÃ­a sin ->ignore
+ *  porque el habitante_id sigue existiendo en otra fila (la suya).
+ *
+ *  Con ->ignore($vocero), la regla dice:
+ *  "habitante_id Ãºnico entre voceros activos, EXCEPTO este vocero"
+ * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ */
+class UpdateVoceroRequest extends FormRequest
+{
+    public function authorize(): bool
+    {
+        return $this->user()?->rol === 'admin'; // oct-2026: el rol operador se eliminÃ³
+    }
+
+    public function rules(): array
+    {
+        $vocero = $this->route('vocero');
+
+        return [
+            'habitante_id' => [
+                'sometimes',
+                'required',
+                'integer',
+                'exists:habitantes,id',
+                Rule::unique('voceros', 'habitante_id')
+                    ->ignore($vocero)
+                    ->where(fn ($q) => $q->where('esta_activo', true)),
+            ],
+            'sede_id' => [
+                'sometimes', 'required', 'integer', 'exists:sedes,id',
+            ],
+            'comite_id' => [
+                'sometimes', 'nullable', 'integer', 'exists:comites,id',
+            ],
+            'unidad_comunal' => [
+                'sometimes', 'required', 'string', 'max:150',
+            ],
+            'fecha_eleccion' => [
+                'sometimes', 'required', 'date_format:Y-m-d', 'before_or_equal:today',
+            ],
+            'fecha_fin' => [
+                'sometimes', 'nullable', 'date_format:Y-m-d', 'after:fecha_eleccion',
+            ],
+            'esta_activo' => [
+                'sometimes', 'boolean',
+            ],
+        ];
+    }
+
+    public function attributes(): array
+    {
+        return [
+            'habitante_id'   => 'habitante',
+            'sede_id'        => 'sede',
+            'comite_id'      => 'comitÃ©',
+            'unidad_comunal' => 'unidad comunal',
+            'fecha_eleccion' => 'fecha de elecciÃ³n',
+            'fecha_fin'      => 'fecha de fin de mandato',
+            'esta_activo'    => 'estado activo',
+        ];
+    }
+
+    public function messages(): array
+    {
+        return [
+            'habitante_id.unique'    => 'Este habitante ya tiene otro cargo de vocero activo.',
+            'fecha_fin.after'        => 'La fecha de fin debe ser posterior a la fecha de elecciÃ³n.',
+            'fecha_eleccion.before_or_equal' => 'La fecha de elecciÃ³n no puede ser futura.',
+        ];
+    }
+
+    protected function failedValidation(Validator $validator): void
+    {
+        throw new HttpResponseException(
+            response()->json([
+                'message' => 'Los datos proporcionados no son vÃ¡lidos.',
+                'errors'  => $validator->errors(),
+            ], 422)
+        );
+    }
+
+    protected function failedAuthorization(): void
+    {
+        throw new HttpResponseException(
+            response()->json([
+                'message' => 'No tienes permiso para editar voceros.',
+                'errors'  => [],
+            ], 403)
+        );
+    }
+}

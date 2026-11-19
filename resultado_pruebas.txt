@@ -1,0 +1,52 @@
+﻿
+   PASS  Tests\Unit\ExampleTest
+  Ô£ô that true is true
+
+   PASS  Tests\Feature\AutenticacionTest
+  Ô£ô login con credenciales validas entrega token                                                                      1.14s  
+  Ô£ô login con clave incorrecta devuelve 401                                                                           0.06s  
+  Ô£ô login con correo inexistente devuelve 401                                                                         0.05s  
+  Ô£ô cuenta se bloquea tras tres intentos fallidos                                                                     0.08s  
+  Ô£ô sesion unica el token anterior deja de funcionar                                                                  0.10s  
+  Ô£ô ruta protegida sin token devuelve 401                                                                             0.10s  
+
+   PASS  Tests\Feature\ControlAccesoTest
+  Ô£ô sin token todas las rutas protegidas devuelven 401                                                                0.08s  
+  Ô£ô usuario ciudadano no accede a modulos administrativos                                                             0.15s  
+  Ô£ô vocero no accede al censo ni a la administracion                                                                  0.12s  
+  Ô£ô vocero si puede consultar los modulos de lectura                                                                  0.16s  
+  Ô£ô administrador accede a los modulos administrativos                                                                0.11s  
+  Ô£ô vocero no puede registrar pago a nombre de un habitante                                                           0.06s  
+  Ô£ô vocero no puede crear voceros                                                                                     0.05s  
+  Ô£ô rutas exclusivas del vocero rechazan a otros roles                                                                0.05s  
+
+   PASS  Tests\Feature\EstimadorConsumoTest
+  Ô£ô con una sola entrega no hay datos                                                                                 0.06s  
+  Ô£ô varias entregas el mismo dia cuentan como una                                                                     0.06s  
+  Ô£ô familia al dia con mas de siete dias restantes                                                                    0.06s  
+  Ô£ô familia proxima con siete dias o menos                                                                            0.06s  
+  Ô£ô familia vencida cuando ya paso la fecha estimada                                                                  0.22s  
+  Ô£ô la calle toma el riesgo de su peor familia                                                                        0.09s  
+  Ô£ô calle sin datos suficientes no se pinta de verde                                                                  0.05s  
+
+   PASS  Tests\Feature\ExampleTest
+  Ô£ô the application returns a successful response                                                                     0.06s  
+
+   PASS  Tests\Feature\ValidacionPagosTest
+  Ô£ô vocero puede verificar un pago pendiente                                                                          0.07s  
+  Ô£ô administrador puede verificar un pago pendiente                                                                   0.07s  
+  Ô£ô un pago ya verificado no puede modificarse                                                                        0.11s  
+  Ô£ô rechazar sin motivo es rechazado por el servidor                                                                  0.12s  
+  Ô£ô rechazar con motivo guarda el motivo                                                                              0.06s  
+  Ô£ô el ciudadano no puede validar pagos                                                                               0.06s  
+
+   PASS  Tests\Feature\VocerosReglasTest
+  Ô£ô administrador puede registrar un vocero                                                                           0.07s  
+  Ô£ô no permite dos mandatos activos del mismo habitante                                                               0.08s  
+  Ô£ô la fecha de eleccion no puede ser futura                                                                          0.06s  
+  Ô£ô campos obligatorios del vocero                                                                                    0.05s  
+  Ô£ô desactivar el mandato permite registrar uno nuevo                                                                 0.08s  
+
+  Tests:    34 passed (92 assertions)
+  Duration: 4.02s
+

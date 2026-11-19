@@ -22,6 +22,13 @@ class ReporteController extends Controller
         // Cargar relaciones necesarias para la constancia
         $habitante->load(['familia.sede', 'familia.calle']);
 
+    if (! $habitante->familia || $habitante->familia->trashed()) {
+    abort(response()->json([
+        'message' => 'No se puede generar la constancia: el habitante no tiene una familia activa en el censo.',
+        'errors'  => [],
+    ], 422));
+}
+
         $datos = [
             'habitante'   => $habitante,
             'familia'     => $habitante->familia,

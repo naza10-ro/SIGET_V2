@@ -1,0 +1,2086 @@
+﻿
+=== C:\Users\vivia\Documents\SIGET_V2\routes\api.php ===
+<?php
+
+/**
+ * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ *  routes/api.php
+ *
+ *  CORRECCIÃ“N APLICADA (histÃ³rico, se conserva):
+ *
+ *  FIX â€” Route::delete('comunicados/{comunicado}') estaba
+ *         registrada DOS VECES:
+ *         Â· Capa 3 (role:admin,operador) â€” INCORRECTO
+ *         Â· Capa 4 (role:admin)          â€” CORRECTO
+ *
+ *         SegÃºn el Documento Maestro y la Matriz de Rutas,
+ *         el destroy de comunicados es operaciÃ³n exclusiva
+ *         del rol admin (Capa 4). Se elimina el duplicado
+ *         de Capa 3. La ruta en Capa 4 se conserva intacta.
+ *
+ *  CAMBIO (sept-2026) â€” MÃ³dulo de Habitantes eliminado:
+ *  Las rutas /api/v1/habitantes (index, show, store, update,
+ *  destroy) se retiran por completo. Los habitantes ahora se
+ *  crean, editan y dan de baja DENTRO del mismo payload de
+ *  /api/v1/familias (array `habitantes[]`), gestionados por
+ *  FamiliaController â€” ver ese archivo para el detalle. El
+ *  import de HabitanteController se elimina porque ya no lo usa
+ *  ninguna ruta.
+ *
+ *  CAMBIO (sept-2026, correcciÃ³n del profesor: roles) â€”
+ *  1. MÃ³dulo de ConfiguraciÃ³n: rutas de usuarios/roles y matriz de
+ *     permisos en Capa 4 (solo admin). Ver UsuarioController.
+ *  2. FIX RBAC: las rutas de lectura de Familias (index/show)
+ *     estaban en Capa 2 (incluÃ­a vocero) y el show devuelve los
+ *     habitantes anidados. ContradecÃ­a la instrucciÃ³n del profesor
+ *     (el vocero no accede a Familias ni Habitantes). Se movieron
+ *     a Capa 3 (admin + operador).
+ *
+ *  CAMBIO (oct-2026) â€” MÃ³dulo de georreferenciaciÃ³n (encuestas +
+ *  mapa de calor), integrado desde el trabajo de la compaÃ±era:
+ *  1. Encuestas (lectura de la lista) y mapa de calor: admin + vocero
+ *     (grupo propio, igual que la validaciÃ³n de pagos). El operador
+ *     NO recibe permisos nuevos porque el rol se eliminarÃ¡.
+ *  2. Crear/editar/eliminar encuestas, registrar entregas y asignar
+ *     coordenadas a las calles: solo admin (Capa 4).
+ *  3. POST encuestas/{encuesta}/respuestas/masivo: registro de una misma
+ *     entrega para varias familias (solo admin).
+ *  4. vocero/resumen y vocero/tareas: las consume VoceroDashboard.jsx
+ *     y no existÃ­an en api.php (el dashboard daba 404).
+ *
+ *  CAMBIO (oct-2026) â€” EliminaciÃ³n del rol operador, Fase 1 (aplicaciÃ³n):
+ *  1. Capa 2 pasa de role:admin,operador,vocero a role:admin,vocero.
+ *  2. Capa 3 pasa de role:admin,operador a role:admin. Queda equivalente
+ *     a la Capa 4; se conserva como grupo separado para respetar la
+ *     estructura de 4 capas documentada (Documento Maestro 5.2).
+ *  3. Se retirÃ³ la ruta GET pagos/form-data: apuntaba a un mÃ©todo que
+ *     no existe en PagoQrController (formData) y ningÃºn componente la usaba.
+ *  La Fase 2 (angostar el enum users.rol en la migraciÃ³n) sigue pendiente.
+ * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ */
+
+use App\Http\Controllers\Api\V1\AuthController;
+use App\Http\Controllers\Api\V1\CalleController;
+use App\Http\Controllers\Api\V1\DashboardController;
+use App\Http\Controllers\Api\V1\FamiliaController;
+use App\Http\Controllers\Api\V1\VoceroController;
+use App\Http\Controllers\Api\V1\ProyectoController;
+use App\Http\Controllers\Api\V1\BeneficioController;
+use App\Http\Controllers\Api\V1\AuditoriaController;
+use App\Http\Controllers\Api\V1\OrganizacionController;
+use App\Http\Controllers\Api\V1\CuentaPagoController;
+use App\Http\Controllers\Api\V1\PagoQrController;
+use App\Http\Controllers\Api\V1\ReporteController;
+use App\Http\Controllers\Api\V1\ComunicadoController;
+use App\Http\Controllers\Api\V1\NoticiaController;
+use App\Http\Controllers\Api\V1\SugerenciaController;
+use App\Http\Controllers\Api\V1\PasswordResetController;
+use App\Http\Controllers\Api\V1\UsuarioController;
+use App\Http\Controllers\Api\V1\EncuestaController;
+use App\Http\Controllers\Api\V1\EncuestaRespuestaController;
+use App\Http\Controllers\Api\V1\MapaCalorController;
+use Illuminate\Support\Facades\Route;
+
+/**
+ * CAMBIO (sept-2026, correcciÃ³n 3 del profesor: seguridad de roles) â€”
+ * PATCH pagos/{pago}/validar se moviÃ³ de Capa 2 a un grupo propio
+ * role:admin,vocero. Ver el bloque "VALIDACIÃ“N DE PAGOS" mÃ¡s abajo.
+ */
+
+Route::prefix('v1')->group(function () {
+
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    //  CAPA 1 â€” PÃšBLICA
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+
+    Route::post('login', [AuthController::class, 'login'])
+        ->name('api.v1.login');
+
+    Route::post('register', [AuthController::class, 'register'])
+        ->name('api.v1.register');
+
+    Route::post('forgot-password', [PasswordResetController::class, 'enviarOtp'])
+        ->name('api.v1.forgot-password');
+
+    Route::post('verify-otp', [PasswordResetController::class, 'verificarOtp'])
+        ->name('api.v1.verify-otp');
+
+    Route::post('reset-password', [PasswordResetController::class, 'resetearPassword'])
+        ->name('api.v1.reset-password');
+
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    //  CAPAS 2, 3 y 4 â€” REQUIEREN TOKEN SANCTUM
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    Route::middleware('auth:sanctum')->group(function () {
+
+        // â”€â”€ SesiÃ³n â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        Route::post('logout', [AuthController::class, 'logout'])
+            ->name('api.v1.logout');
+
+        Route::get('me', [AuthController::class, 'me'])
+            ->name('api.v1.me');
+
+        // Noticias â€” lectura (todos los roles autenticados)
+        Route::get('noticias/recientes', [NoticiaController::class, 'recientes'])
+            ->name('api.v1.noticias.recientes');
+
+        Route::get('noticias/todas', [NoticiaController::class, 'todas'])
+            ->name('api.v1.noticias.todas');
+
+        Route::get('noticias', [NoticiaController::class, 'index'])
+            ->name('api.v1.noticias.index');
+
+        Route::get('noticias/{noticia}', [NoticiaController::class, 'show'])
+            ->name('api.v1.noticias.show');
+
+        // Sugerencias â€” todos los roles autenticados pueden enviar y ver las suyas
+        // REGLA: estÃ¡tica /mis ANTES que la dinÃ¡mica {sugerencia}
+        Route::post('sugerencias', [SugerenciaController::class, 'store'])
+            ->name('api.v1.sugerencias.store');
+
+        Route::get('sugerencias/mis', [SugerenciaController::class, 'mis'])
+            ->name('api.v1.sugerencias.mis');
+
+        // Pagos QR â€” Portal Ciudadano (todos los roles autenticados)
+        // FIX (junio 2026): el rol "usuario" registra su propio pago
+        // sin depender de habitante_id. REGLA: estÃ¡ticas /mio y /mis
+        // ANTES que las dinÃ¡micas {pago} de Capa 2.
+        Route::post('pagos/mio', [PagoQrController::class, 'storeUsuario'])
+            ->name('api.v1.pagos.store-usuario');
+
+        Route::get('pagos/mis', [PagoQrController::class, 'misPagos'])
+            ->name('api.v1.pagos.mis');
+
+        // Cuentas de Pago â€” todos los roles autenticados pueden VER las
+        // activas, para elegir a cuÃ¡l corresponde su pago. La escritura
+        // (crear/editar/eliminar) vive en Capa 3 y Capa 4 mÃ¡s abajo.
+        // REGLA: estÃ¡tica 'cuentas-pago' (sin parÃ¡metro) ya es la raÃ­z,
+        // no hay conflicto de orden con la dinÃ¡mica {cuenta} de Capa 2.
+        Route::get('cuentas-pago', [CuentaPagoController::class, 'index'])
+            ->name('api.v1.cuentas-pago.index');
+
+
+        // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+        //  CAPA 2 â€” LECTURA (admin + vocero)
+        // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+        Route::middleware('role:admin,vocero')->group(function () {
+
+            Route::get('dashboard/stats', [DashboardController::class, 'stats'])
+                ->name('api.v1.dashboard.stats');
+
+            // NOTA (sept-2026): Familias NO va en esta capa â€” el vocero no
+            // tiene acceso a Familias ni Habitantes. Su lectura vive en Capa 3.
+
+            // Sedes y Calles â€” opciones para selects encadenados
+            Route::get('sedes', [CalleController::class, 'listaSedes'])
+                ->name('api.v1.sedes.index');
+
+            Route::get('sedes/{sede}/calles', [CalleController::class, 'callesPorSede'])
+                ->name('api.v1.sedes.calles');
+
+            // Voceros â€” estÃ¡tica form-data ANTES que la dinÃ¡mica {vocero}
+            Route::get('voceros/form-data', [VoceroController::class, 'getFormData'])
+                ->name('api.v1.voceros.form-data');
+
+            Route::get('voceros', [VoceroController::class, 'index'])
+                ->name('api.v1.voceros.index');
+
+            Route::get('voceros/{vocero}', [VoceroController::class, 'show'])
+                ->name('api.v1.voceros.show');
+
+            // Proyectos â€” estÃ¡tica form-data ANTES que la dinÃ¡mica {proyecto}
+            Route::get('proyectos/form-data', [ProyectoController::class, 'getFormData'])
+                ->name('api.v1.proyectos.form-data');
+
+            Route::get('proyectos', [ProyectoController::class, 'index'])
+                ->name('api.v1.proyectos.index');
+
+            Route::get('proyectos/{proyecto}', [ProyectoController::class, 'show'])
+                ->name('api.v1.proyectos.show');
+
+            // Beneficios â€” lectura
+            Route::get('beneficios', [BeneficioController::class, 'index'])
+                ->name('api.v1.beneficios.index');
+
+            Route::get('beneficios/{beneficio}', [BeneficioController::class, 'show'])
+                ->name('api.v1.beneficios.show');
+
+            // Organizaciones â€” estÃ¡tica form-data ANTES que la dinÃ¡mica {org}
+            Route::get('organizaciones/form-data', [OrganizacionController::class, 'formData'])
+                ->name('api.v1.organizaciones.form-data');
+
+            Route::get('organizaciones', [OrganizacionController::class, 'index'])
+                ->name('api.v1.organizaciones.index');
+
+            Route::get('organizaciones/{org}', [OrganizacionController::class, 'show'])
+                ->name('api.v1.organizaciones.show');
+
+            // Detalle de una cuenta de pago â€” el listado vive en Capa 1
+            Route::get('cuentas-pago/{cuenta}', [CuentaPagoController::class, 'show'])
+                ->name('api.v1.cuentas-pago.show');
+
+            // Pagos QR â€” lectura
+            Route::get('pagos', [PagoQrController::class, 'index'])
+                ->name('api.v1.pagos.index');
+
+            Route::get('pagos/{pago}', [PagoQrController::class, 'show'])
+                ->name('api.v1.pagos.show');
+
+            // NOTA (sept-2026): validar pago YA NO va en esta capa â€”
+            // ver el grupo dedicado role:admin,vocero mÃ¡s abajo.
+
+            // Reportes PDF â€” al vuelo, sin persistencia en BD
+            Route::get('reportes/constancia-residencia/{habitante}', [ReporteController::class, 'constanciaResidencia'])
+                ->name('api.v1.reportes.constancia-residencia');
+
+            Route::get('reportes/estadisticas-dashboard', [ReporteController::class, 'estadisticasDashboard'])
+                ->name('api.v1.reportes.estadisticas-dashboard');
+
+            // Sugerencias â€” lectura para admin y vocero
+            Route::get('sugerencias', [SugerenciaController::class, 'index'])
+                ->name('api.v1.sugerencias.index');
+        });
+
+
+        // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+        //  VALIDACIÃ“N DE PAGOS â€” solo admin y vocero
+        //  (sept-2026, correcciÃ³n 3 del profesor: seguridad de roles)
+        //
+        //  Antes vivÃ­a en Capa 2 (admin,operador,vocero), lo que
+        //  contradecÃ­a la tabla de roles del documento (el operador
+        //  no debÃ­a tener esta escritura). El rol operador se eliminÃ³
+        //  en oct-2026 (Fase 1 de 14.7-E). El vocero SÃ puede validar
+        //  (decisiÃ³n del estudiante); mantiene su lectura de pagos en
+        //  Capa 2 sin cambios.
+        // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+        Route::middleware('role:admin,vocero')->group(function () {
+            Route::patch('pagos/{pago}/validar', [PagoQrController::class, 'validar'])
+                ->name('api.v1.pagos.validar');
+        });
+
+
+        // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+        //  ENCUESTAS (solo la lista) Y MAPA DE CALOR â€” admin y vocero
+        //  (oct-2026, mÃ³dulo de georreferenciaciÃ³n)
+        //
+        //  El vocero solo ve las calles de las sedes donde tiene un
+        //  mandato activo y Ãºnicamente conteos agregados (sin nombres
+        //  de familias): lo valida MapaCalorController. Las estÃ¡ticas
+        //  van antes que las dinÃ¡micas.
+        // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+        Route::middleware('role:admin,vocero')->group(function () {
+            Route::get('encuestas', [EncuestaController::class, 'index'])
+                ->name('api.v1.encuestas.index');
+
+            Route::get('mapa-calor', [MapaCalorController::class, 'index'])
+                ->name('api.v1.mapa-calor.index');
+
+            Route::get('mapa-calor/calle/{calle}', [MapaCalorController::class, 'detalleCalle'])
+                ->name('api.v1.mapa-calor.calle');
+        });
+
+
+        // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+        //  DASHBOARD DEL VOCERO â€” resumen y tareas (solo vocero)
+        //  Las consume VoceroDashboard.jsx; antes no existÃ­an (404).
+        // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+        Route::middleware('role:vocero')->group(function () {
+            Route::get('vocero/resumen', [VoceroController::class, 'resumen'])
+                ->name('api.v1.vocero.resumen');
+
+            Route::get('vocero/tareas', [VoceroController::class, 'tareas'])
+                ->name('api.v1.vocero.tareas');
+        });
+
+
+        // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+        //  CAPA 3 â€” ESCRITURA (solo admin desde oct-2026; ver nota del encabezado)
+        // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+        Route::middleware('role:admin')->group(function () {
+
+            // Familias â€” lectura (incluye habitantes anidados en show()),
+            // crear y editar (el payload de store/update incluye el array
+            // `habitantes[]` â€” ver FamiliaController). Solo admin.
+            Route::get('familias', [FamiliaController::class, 'index'])
+                ->name('api.v1.familias.index');
+
+            Route::get('familias/{familia}', [FamiliaController::class, 'show'])
+                ->name('api.v1.familias.show');
+
+            Route::post('familias', [FamiliaController::class, 'store'])
+                ->name('api.v1.familias.store');
+
+            Route::put('familias/{familia}', [FamiliaController::class, 'update'])
+                ->name('api.v1.familias.update');
+
+            // Voceros â€” crear y editar
+            Route::post('voceros', [VoceroController::class, 'store'])
+                ->name('api.v1.voceros.store');
+
+            Route::put('voceros/{vocero}', [VoceroController::class, 'update'])
+                ->name('api.v1.voceros.update');
+
+            // Proyectos â€” crear y editar
+            Route::post('proyectos', [ProyectoController::class, 'store'])
+                ->name('api.v1.proyectos.store');
+
+            Route::put('proyectos/{proyecto}', [ProyectoController::class, 'update'])
+                ->name('api.v1.proyectos.update');
+
+            // Beneficios â€” crear y editar
+            Route::post('beneficios', [BeneficioController::class, 'store'])
+                ->name('api.v1.beneficios.store');
+
+            Route::put('beneficios/{beneficio}', [BeneficioController::class, 'update'])
+                ->name('api.v1.beneficios.update');
+
+            // Organizaciones â€” crear y editar
+            Route::post('organizaciones', [OrganizacionController::class, 'store'])
+                ->name('api.v1.organizaciones.store');
+
+            Route::put('organizaciones/{org}', [OrganizacionController::class, 'update'])
+                ->name('api.v1.organizaciones.update');
+
+            // Crear y editar cuentas de pago â€” admin
+            Route::post('cuentas-pago', [CuentaPagoController::class, 'store'])
+                ->name('api.v1.cuentas-pago.store');
+
+            Route::put('cuentas-pago/{cuenta}', [CuentaPagoController::class, 'update'])
+                ->name('api.v1.cuentas-pago.update');
+
+            // Pagos QR â€” crear
+            Route::post('pagos', [PagoQrController::class, 'store'])
+                ->name('api.v1.pagos.store');
+
+            // Comunicados â€” crear, leer y editar
+            // NOTA: el destroy de comunicados NO va aquÃ­.
+            // Solo el rol admin puede eliminar comunicados (ver Capa 4).
+            Route::get('comunicados', [ComunicadoController::class, 'index'])
+                ->name('api.v1.comunicados.index');
+
+            Route::post('comunicados', [ComunicadoController::class, 'store'])
+                ->name('api.v1.comunicados.store');
+
+            // EstÃ¡tica /pdf ANTES que la dinÃ¡mica {comunicado}
+            // (aunque aquÃ­ estÃ¡n en grupos separados, por claridad se documenta)
+            Route::get('comunicados/{comunicado}', [ComunicadoController::class, 'show'])
+                ->name('api.v1.comunicados.show');
+
+            Route::put('comunicados/{comunicado}', [ComunicadoController::class, 'update'])
+                ->name('api.v1.comunicados.update');
+
+            Route::get('comunicados/{comunicado}/pdf', [ComunicadoController::class, 'descargarPdf'])
+                ->name('api.v1.comunicados.descargar-pdf');
+
+            // âœ… FIX: Route::delete de comunicados ELIMINADO de esta capa.
+            // Estaba duplicada con la de Capa 4. El destroy de comunicados
+            // es exclusivo del rol admin y vive Ãºnicamente en Capa 4.
+
+            // Noticias â€” crear, editar y publicar (admin)
+            // REGLA: estÃ¡tica /todas y /publicar ANTES que la dinÃ¡mica {noticia}
+            Route::post('noticias', [NoticiaController::class, 'store'])
+                ->name('api.v1.noticias.store');
+
+            Route::put('noticias/{noticia}', [NoticiaController::class, 'update'])
+                ->name('api.v1.noticias.update');
+
+            Route::patch('noticias/{noticia}/publicar', [NoticiaController::class, 'publicar'])
+                ->name('api.v1.noticias.publicar');
+
+            // Sugerencias â€” revisar y responder (admin)
+            Route::patch('sugerencias/{sugerencia}/revisar', [SugerenciaController::class, 'revisar'])
+                ->name('api.v1.sugerencias.revisar');
+        });
+
+
+        // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+        //  CAPA 4 â€” SOLO ADMIN (eliminaciones y auditorÃ­a)
+        // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+        Route::middleware('role:admin')->group(function () {
+
+            // SoftDelete â€” los registros quedan en BD con deleted_at
+            Route::delete('familias/{familia}', [FamiliaController::class, 'destroy'])
+                ->name('api.v1.familias.destroy');
+
+            Route::delete('voceros/{vocero}', [VoceroController::class, 'destroy'])
+                ->name('api.v1.voceros.destroy');
+
+            Route::delete('proyectos/{proyecto}', [ProyectoController::class, 'destroy'])
+                ->name('api.v1.proyectos.destroy');
+
+            Route::delete('beneficios/{beneficio}', [BeneficioController::class, 'destroy'])
+                ->name('api.v1.beneficios.destroy');
+
+            Route::delete('organizaciones/{org}', [OrganizacionController::class, 'destroy'])
+                ->name('api.v1.organizaciones.destroy');
+
+            // Eliminar cuenta de pago â€” solo admin
+            Route::delete('cuentas-pago/{cuenta}', [CuentaPagoController::class, 'destroy'])
+                ->name('api.v1.cuentas-pago.destroy');
+
+            Route::delete('pagos/{pago}', [PagoQrController::class, 'destroy'])
+                ->name('api.v1.pagos.destroy');
+
+            // âœ… Ãšnica definiciÃ³n correcta del destroy de comunicados
+            Route::delete('comunicados/{comunicado}', [ComunicadoController::class, 'destroy'])
+                ->name('api.v1.comunicados.destroy');
+
+            // Noticias â€” eliminar (solo admin)
+            Route::delete('noticias/{noticia}', [NoticiaController::class, 'destroy'])
+                ->name('api.v1.noticias.destroy');
+
+            // Sugerencias â€” eliminar (solo admin)
+            Route::delete('sugerencias/{sugerencia}', [SugerenciaController::class, 'destroy'])
+                ->name('api.v1.sugerencias.destroy');
+
+            // AuditorÃ­a â€” solo lectura, exclusivo admin
+            Route::get('auditorias', [AuditoriaController::class, 'index'])
+                ->name('api.v1.auditorias.index');
+
+            // ConfiguraciÃ³n â€” usuarios y roles (solo admin)
+            // Matriz de permisos derivada de las rutas reales.
+            Route::get('configuracion/permisos', [UsuarioController::class, 'matrizPermisos'])
+                ->name('api.v1.configuracion.permisos');
+
+            Route::get('usuarios', [UsuarioController::class, 'index'])
+                ->name('api.v1.usuarios.index');
+
+            Route::patch('usuarios/{usuario}/rol', [UsuarioController::class, 'cambiarRol'])
+                ->name('api.v1.usuarios.rol');
+
+            // withTrashed: permite reactivar cuentas desactivadas (SoftDelete)
+            Route::patch('usuarios/{usuario}/estado', [UsuarioController::class, 'cambiarEstado'])
+                ->withTrashed()
+                ->name('api.v1.usuarios.estado');
+
+            Route::patch('usuarios/{usuario}/desbloquear', [UsuarioController::class, 'desbloquear'])
+                ->name('api.v1.usuarios.desbloquear');
+
+            // â”€â”€ Encuestas y entregas (oct-2026, georreferenciaciÃ³n) â”€â”€
+            // La lista (GET encuestas) vive en el grupo admin+vocero.
+            Route::post('encuestas', [EncuestaController::class, 'store'])
+                ->name('api.v1.encuestas.store');
+
+            Route::get('encuestas/{encuesta}', [EncuestaController::class, 'show'])
+                ->name('api.v1.encuestas.show');
+
+            Route::put('encuestas/{encuesta}', [EncuestaController::class, 'update'])
+                ->name('api.v1.encuestas.update');
+
+            Route::delete('encuestas/{encuesta}', [EncuestaController::class, 'destroy'])
+                ->name('api.v1.encuestas.destroy');
+
+            Route::get('encuestas/{encuesta}/respuestas', [EncuestaRespuestaController::class, 'index'])
+                ->name('api.v1.encuestas.respuestas.index');
+
+            Route::post('encuestas/{encuesta}/respuestas', [EncuestaRespuestaController::class, 'store'])
+                ->name('api.v1.encuestas.respuestas.store');
+
+            // Registro masivo: la misma entrega para varias familias a la vez
+            Route::post('encuestas/{encuesta}/respuestas/masivo', [EncuestaRespuestaController::class, 'storeMasivo'])
+                ->name('api.v1.encuestas.respuestas.masivo');
+
+            Route::put('encuesta-respuestas/{encuestaRespuesta}', [EncuestaRespuestaController::class, 'update'])
+                ->name('api.v1.encuesta-respuestas.update');
+
+            Route::delete('encuesta-respuestas/{encuestaRespuesta}', [EncuestaRespuestaController::class, 'destroy'])
+                ->name('api.v1.encuesta-respuestas.destroy');
+
+            // â”€â”€ Coordenadas de una calle (mapa de calor) â”€â”€
+            Route::patch('calles/{calle}/coordenadas', [CalleController::class, 'actualizarCoordenadas'])
+                ->name('api.v1.calles.coordenadas');
+        });
+
+    }); // fin auth:sanctum
+
+}); // fin prefix v1
+
+=== C:\Users\vivia\Documents\SIGET_V2\phpunit.xml ===
+<?xml version="1.0" encoding="UTF-8"?>
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="vendor/phpunit/phpunit/phpunit.xsd"
+         bootstrap="vendor/autoload.php"
+         colors="true"
+>
+    <testsuites>
+        <testsuite name="Unit">
+            <directory>tests/Unit</directory>
+        </testsuite>
+        <testsuite name="Feature">
+            <directory>tests/Feature</directory>
+        </testsuite>
+    </testsuites>
+    <source>
+        <include>
+            <directory>app</directory>
+        </include>
+    </source>
+    <php>
+        <env name="APP_ENV" value="testing"/>
+        <env name="APP_MAINTENANCE_DRIVER" value="file"/>
+        <env name="BCRYPT_ROUNDS" value="4"/>
+        <env name="BROADCAST_CONNECTION" value="null"/>
+        <env name="CACHE_STORE" value="array"/>
+        <env name="DB_CONNECTION" value="sqlite"/>
+        <env name="DB_DATABASE" value=":memory:"/>
+        <env name="DB_URL" value=""/>
+        <env name="MAIL_MAILER" value="array"/>
+        <env name="QUEUE_CONNECTION" value="sync"/>
+        <env name="SESSION_DRIVER" value="array"/>
+        <env name="PULSE_ENABLED" value="false"/>
+        <env name="TELESCOPE_ENABLED" value="false"/>
+        <env name="NIGHTWATCH_ENABLED" value="false"/>
+    </php>
+</phpunit>
+
+=== C:\Users\vivia\Documents\SIGET_V2\bootstrap\app.php ===
+<?php
+
+/**
+ * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ *  bootstrap/app.php â€” SIGET
+ * â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+ *  CORRECCIÃ“N: "Route [login] not defined"
+ *
+ *  Causa: Cuando un token Sanctum falta o expira, Laravel lanza
+ *  AuthenticationException. Su handler por defecto llama a
+ *  redirect()->route('login') â€” pero en una SPA pura no existe
+ *  ninguna ruta nombrada 'login'; hay un endpoint POST /api/v1/login.
+ *  Resultado: "Route [login] not defined".
+ *
+ *  SoluciÃ³n: Interceptar AuthenticationException ANTES de que
+ *  llegue al handler de redirect. Si la peticiÃ³n es a /api/*
+ *  o espera JSON, devolver 401 JSON directamente.
+ *
+ *  Esta soluciÃ³n ya estaba parcialmente implementada, pero faltaba
+ *  el return explÃ­cito en el bloque de AuthenticationException
+ *  para cortar el flujo y evitar que el handler por defecto siga
+ *  ejecutÃ¡ndose y busque la ruta 'login'.
+ * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ */
+
+use Illuminate\Foundation\Application;
+use Illuminate\Foundation\Configuration\Exceptions;
+use Illuminate\Foundation\Configuration\Middleware;
+use Illuminate\Http\Request;
+
+return Application::configure(basePath: dirname(__DIR__))
+
+    // â”€â”€ Registro de archivos de rutas â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    ->withRouting(
+        web:        __DIR__ . '/../routes/web.php',
+        api:        __DIR__ . '/../routes/api.php',
+        commands:   __DIR__ . '/../routes/console.php',
+        health:     '/up',
+        apiPrefix:  'api',
+    )
+
+    // â”€â”€ Registro de middleware â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    ->withMiddleware(function (Middleware $middleware) {
+
+        /**
+         * Alias de middleware personalizados.
+         * Permite usar 'role:admin,operador' en las rutas
+         * en vez del namespace completo de la clase.
+         */
+        $middleware->alias([
+            'role' => \App\Http\Middleware\AdminMiddleware::class,
+        ]);
+
+        /**
+         * Middleware global para APIs:
+         * Sanctum gestiona la autenticaciÃ³n stateless con tokens.
+         * Se agrega al grupo 'api' para que aplique a todas las
+         * rutas definidas en routes/api.php.
+         */
+        $middleware->appendToGroup('api', [
+            \Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful::class,
+        ]);
+
+    })
+
+    // â”€â”€ Manejo de excepciones â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    ->withExceptions(function (Exceptions $exceptions) {
+
+        /**
+         * Respuesta JSON para errores de autenticaciÃ³n en la API.
+         * Sin esto, Laravel devuelve un redirect HTML 302 cuando
+         * el token es invÃ¡lido â€” lo cual React no puede procesar.
+         */
+        $exceptions->render(function (\Illuminate\Auth\AuthenticationException $e, Request $request) {
+            // âœ… FIX: return explÃ­cito en TODOS los casos de la API.
+            // Sin el return en el else, Laravel continÃºa hacia el handler
+            // por defecto que llama redirect()->route('login') â€” que no
+            // existe en una SPA stateless â€” causando el error 500.
+            if ($request->is('api/*') || $request->expectsJson()) {
+                return response()->json([
+                    'message' => 'No autenticado. Por favor, inicia sesiÃ³n.',
+                    'errors'  => [],
+                ], 401);
+            }
+
+            // Rutas web (no API) â€” devolver null para que Laravel
+            // use su handler por defecto solo en rutas web reales.
+            return null;
+        });
+
+        /**
+         * Respuesta JSON para errores de autorizaciÃ³n (403).
+         */
+        $exceptions->render(function (\Illuminate\Auth\Access\AuthorizationException $e, Request $request) {
+            if ($request->is('api/*') || $request->expectsJson()) {
+                return response()->json([
+                    'message' => __('No tienes permiso para realizar esta acciÃ³n.'),
+                    'errors'  => [],
+                ], 403);
+            }
+        });
+
+        /**
+         * Respuesta JSON para modelos no encontrados (404).
+         * Sin esto, Laravel devuelve una pÃ¡gina HTML de error.
+         */
+        $exceptions->render(function (\Illuminate\Database\Eloquent\ModelNotFoundException $e, Request $request) {
+            if ($request->is('api/*') || $request->expectsJson()) {
+                $model = class_basename($e->getModel());
+                return response()->json([
+                    'message' => "Recurso {$model} no encontrado.",
+                    'errors'  => [],
+                ], 404);
+            }
+        });
+
+        /**
+         * â”€â”€ ValidaciÃ³n 422 â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+         * FormRequest fallido â€” por si no estÃ¡ sobrescrito en el Request.
+         */
+        $exceptions->render(function (\Illuminate\Validation\ValidationException $e, Request $request) {
+            if ($request->is('api/*') || $request->expectsJson()) {
+                return response()->json([
+                    'message' => 'Los datos proporcionados no son vÃ¡lidos.',
+                    'errors'  => $e->errors(),
+                ], 422);
+            }
+        });
+
+    })
+    ->create();
+
+=== C:\Users\vivia\Documents\SIGET_V2\app\Models\User.php ===
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Foundation\Auth\User as Authenticatable;
+use Illuminate\Notifications\Notifiable;
+use Laravel\Sanctum\HasApiTokens;
+
+/**
+ * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ *  User â€” Modelo de usuario
+ * â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+ *  TRAIT CRÃTICO: HasApiTokens
+ *  Sin este trait, el mÃ©todo $user->createToken() no existe
+ *  y el AuthController lanzarÃ¡ un error fatal al intentar
+ *  emitir el token de Sanctum.
+ *
+ *  RELACIONES: cada FK hacia `users` en la base de datos tiene su
+ *  relaciÃ³n inversa (hasMany) declarada aquÃ­. Ver la matriz de
+ *  relaciones del proyecto.
+ * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ */
+class User extends Authenticatable
+{
+    use HasApiTokens;   // â† CRÃTICO para Sanctum â€” sin esto, no hay tokens
+    use HasFactory;
+    use Notifiable;
+    use SoftDeletes;    // deleted_at â€” los usuarios se desactivan, no se eliminan
+
+    protected $fillable = [
+        'name',
+        'cedula',
+        'email',
+        'password',
+        'rol',
+        'habitante_id',
+        'failed_attempts',
+        'is_locked',
+        'locked_at',
+        'otp_code',
+        'otp_expires_at',
+    ];
+
+    protected $hidden = [
+        'password',
+        'remember_token',
+        'otp_code',
+    ];
+
+    protected function casts(): array
+    {
+        return [
+            'email_verified_at' => 'datetime',
+            'password'          => 'hashed',
+            'habitante_id'      => 'integer',
+            'locked_at'         => 'datetime',
+            'otp_expires_at'    => 'datetime',
+            'is_locked'         => 'boolean',
+            'failed_attempts'   => 'integer',
+        ];
+    }
+
+    // â”€â”€â”€ Helpers de seguridad â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    /**
+     * Incrementa el contador de intentos fallidos.
+     * Si llega a 3, bloquea la cuenta automÃ¡ticamente.
+     */
+    public function registrarIntentoFallido(): void
+    {
+        $this->increment('failed_attempts');
+        if ($this->failed_attempts >= 3) {
+            $this->update([
+                'is_locked' => true,
+                'locked_at' => now(),
+            ]);
+        }
+    }
+
+    // Limpia los intentos fallidos tras un login exitoso.
+    public function limpiarIntentos(): void
+    {
+        $this->update([
+            'failed_attempts' => 0,
+            'is_locked'       => false,
+            'locked_at'       => null,
+        ]);
+    }
+
+    // Genera y guarda un OTP de 6 dÃ­gitos con expiraciÃ³n de 15 minutos.
+    // Retorna el cÃ³digo en texto plano para enviarlo por correo.
+    public function generarOtp(): string
+    {
+        $codigo = str_pad(random_int(0, 999999), 6, '0', STR_PAD_LEFT);
+
+        $this->update([
+            'otp_code'       => $codigo,
+            'otp_expires_at' => now()->addMinutes(15),
+        ]);
+
+        return $codigo;
+    }
+
+    // Verifica si el OTP proporcionado es vÃ¡lido y no ha expirado.
+    public function otpEsValido(string $codigo): bool
+    {
+        return $this->otp_code === $codigo
+            && $this->otp_expires_at !== null
+            && now()->lessThanOrEqualTo($this->otp_expires_at);
+    }
+
+    // Limpia el OTP despuÃ©s de usarlo exitosamente.
+    public function limpiarOtp(): void
+    {
+        $this->update([
+            'otp_code'       => null,
+            'otp_expires_at' => null,
+        ]);
+    }
+
+    // Desbloquea la cuenta y limpia todos los campos de seguridad.
+    public function desbloquear(): void
+    {
+        $this->update([
+            'is_locked'       => false,
+            'locked_at'       => null,
+            'failed_attempts' => 0,
+            'otp_code'        => null,
+            'otp_expires_at'  => null,
+        ]);
+    }
+
+    // â”€â”€ Relaciones â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+    /** Registro del censo vinculado a este usuario (opcional). */
+    public function habitante(): BelongsTo
+    {
+        return $this->belongsTo(Habitante::class)->withTrashed();
+    }
+
+    public function noticias(): HasMany
+    {
+        return $this->hasMany(Noticia::class);
+    }
+
+    /** Sugerencias que este usuario enviÃ³. */
+    public function sugerencias(): HasMany
+    {
+        return $this->hasMany(Sugerencia::class);
+    }
+
+    /** Sugerencias que este usuario revisÃ³ (admin). */
+    public function sugerenciasRevisadas(): HasMany
+    {
+        return $this->hasMany(Sugerencia::class, 'revisada_por');
+    }
+
+    /** Pagos que este usuario registrÃ³ por el Portal Ciudadano. */
+    public function pagos(): HasMany
+    {
+        return $this->hasMany(PagoQr::class);
+    }
+
+    /** Pagos que este usuario verificÃ³ o rechazÃ³. */
+    public function pagosVerificados(): HasMany
+    {
+        return $this->hasMany(PagoQr::class, 'verificado_por');
+    }
+
+    public function comunicados(): HasMany
+    {
+        return $this->hasMany(Comunicado::class);
+    }
+
+    public function auditorias(): HasMany
+    {
+        return $this->hasMany(Auditoria::class);
+    }
+
+    /** Proyectos que este usuario registrÃ³. */
+    public function proyectos(): HasMany
+    {
+        return $this->hasMany(Proyecto::class);
+    }
+
+    /** Entregas de beneficios que este usuario registrÃ³. */
+    public function beneficiosRegistrados(): HasMany
+    {
+        return $this->hasMany(Beneficio::class);
+    }
+
+    // â”€â”€ Helpers de rol (usados en Policies y Middleware) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    public function esAdmin(): bool
+    {
+        return $this->rol === 'admin';
+    }
+
+    public function puedeEliminar(): bool
+    {
+        return $this->rol === 'admin';
+    }
+
+    /**
+     * QuiÃ©n puede validar (verificar/rechazar) pagos QR.
+     * CorrecciÃ³n 3 del profesor (sept-2026): antes cualquier rol de
+     * Capa 2 (admin, operador, vocero) podÃ­a validar â€” contradecÃ­a
+     * la tabla de roles del documento. Ahora solo admin y vocero
+     * (el rol operador se eliminÃ³ en oct-2026, Fase 1 de 14.7-E).
+     */
+    public function puedeValidarPagos(): bool
+    {
+        return in_array($this->rol, ['admin', 'vocero'], true);
+    }
+}
+
+=== C:\Users\vivia\Documents\SIGET_V2\app\Http\Middleware\AdminMiddleware.php ===
+<?php
+
+namespace App\Http\Middleware;
+
+use Closure;
+use Illuminate\Http\Request;
+use Symfony\Component\HttpFoundation\Response;
+
+/**
+ * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ *  AdminMiddleware â€” Control de Acceso Basado en Roles (RBAC)
+ * â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+ *  DECISIÃ“N ARQUITECTÃ“NICA â€” Â¿Por quÃ© un middleware y no una Policy?
+ *
+ *  Las Policies de Laravel son ideales para autorizar acciones
+ *  sobre un MODELO especÃ­fico (Â¿puede este usuario editar ESTE habitante?).
+ *  El middleware es ideal para proteger GRUPOS de rutas segÃºn el rol
+ *  general del usuario (Â¿puede este rol acceder a rutas de escritura?).
+ *
+ *  SIGET usa ambos en su momento:
+ *  - AdminMiddleware â†’ protecciÃ³n de rutas (este archivo)
+ *  - Policies         â†’ granularidad sobre registros especÃ­ficos (futuro)
+ *
+ *  USO EN routes/api.php:
+ *  â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+ *  // Solo lectura (admin + operador + vocero):
+ *  Route::middleware(['auth:sanctum', 'role:admin,operador,vocero'])
+ *
+ *  // Escritura (admin + operador):
+ *  Route::middleware(['auth:sanctum', 'role:admin,operador'])
+ *
+ *  // Solo admin (delete, configuraciÃ³n):
+ *  Route::middleware(['auth:sanctum', 'role:admin'])
+ *
+ *  REGISTRO en bootstrap/app.php (Laravel 11):
+ *  â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+ *  ->withMiddleware(function (Middleware $middleware) {
+ *      $middleware->alias([
+ *          'role' => \App\Http\Middleware\AdminMiddleware::class,
+ *      ]);
+ *  })
+ * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ */
+class AdminMiddleware
+{
+    /**
+     * @param  Request  $request
+     * @param  Closure  $next
+     * @param  string   ...$roles  Roles permitidos para esta ruta.
+     *                             Se pasan como: 'role:admin,operador'
+     */
+    public function handle(Request $request, Closure $next, string ...$roles): Response
+    {
+        $user = $request->user();
+
+        // VerificaciÃ³n 1: usuario autenticado
+        // (Sanctum ya garantiza esto con auth:sanctum, pero es buena prÃ¡ctica)
+        if (! $user) {
+            return response()->json([
+                'message' => __('auth.unauthenticated'),
+            ], 401);
+        }
+
+        // VerificaciÃ³n 2: el rol del usuario estÃ¡ entre los permitidos
+        if (! in_array($user->rol, $roles, strict: true)) {
+            return response()->json([
+                'message' => __('auth.unauthorized'),
+                'errors'  => [
+                    'rol' => [
+                        __('auth.unauthorized_role', [
+                            'rol'      => $user->rol,
+                            'required' => implode(' o ', $roles),
+                        ]),
+                    ],
+                ],
+            ], 403);
+        }
+
+        return $next($request);
+    }
+}
+
+=== C:\Users\vivia\Documents\SIGET_V2\app\Http\Middleware\Authenticate.php ===
+<?php
+
+namespace App\Http\Middleware;
+
+use Illuminate\Auth\Middleware\Authenticate as Middleware;
+use Illuminate\Http\Request;
+
+class Authenticate extends Middleware
+{
+    protected function redirectTo(Request $request): ?string
+    {
+        // API stateless â€” nunca redirigir, siempre responder JSON 401
+        return null;
+    }
+}
+
+=== C:\Users\vivia\Documents\SIGET_V2\app\Http\Controllers\Api\V1\AuthController.php ===
+<?php
+
+namespace App\Http\Controllers\Api\V1;
+
+use App\Http\Controllers\Controller;
+use App\Http\Requests\Auth\LoginRequest;
+use App\Http\Requests\Auth\RegisterRequest;
+use App\Http\Resources\UserResource;
+use App\Models\User;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Str;
+
+class AuthController extends Controller
+{
+    private const MAX_ATTEMPTS  = 5;   // Rate limiter de IP (capa de red)
+    private const DECAY_SECONDS = 60;
+    private const MAX_PW_FAILS  = 3;   // Intentos antes de bloquear cuenta
+
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    //  POST /api/v1/register  â€” PÃºblico
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    public function register(RegisterRequest $request): JsonResponse
+    {
+        $user = User::create([
+            'name'     => $request->name,
+            'cedula'   => $request->cedula,
+            'email'    => $request->email,
+            'password' => $request->password, // el cast 'hashed' lo encripta automÃ¡ticamente
+            'rol'      => 'usuario',           // rol base por defecto
+        ]);
+
+        $token = $user->createToken(
+            name:      'siget-spa-' . now()->timestamp,
+            abilities: ['admin:read'],
+        )->plainTextToken;
+
+        return response()->json([
+            'message' => 'Cuenta creada exitosamente.',
+            'data'    => [
+                'token' => $token,
+                'user'  => new UserResource($user),
+            ],
+        ], 201);
+    }
+
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    //  POST /api/v1/login  â€” PÃºblico
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    public function login(LoginRequest $request): JsonResponse
+    {
+        // â”€â”€ 1. Rate limiter por IP (capa de red) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        $throttleKey = Str::lower($request->email) . '|' . $request->ip();
+
+        if (RateLimiter::tooManyAttempts($throttleKey, self::MAX_ATTEMPTS)) {
+            $seconds = RateLimiter::availableIn($throttleKey);
+            return response()->json([
+                'message' => "Demasiados intentos. Espera {$seconds} segundos.",
+                'errors'  => [],
+            ], 429);
+        }
+
+        // â”€â”€ 2. Buscar usuario â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        /** @var User|null $user */
+        $user = User::where('email', $request->email)->first();
+
+        // â”€â”€ 3. Verificar si la cuenta existe y contraseÃ±a es vÃ¡lida
+        if (! $user || ! Hash::check($request->password, $user->password)) {
+
+            RateLimiter::hit($throttleKey, self::DECAY_SECONDS);
+
+            // Si el usuario existe, registrar intento fallido
+            if ($user) {
+                $user->registrarIntentoFallido();
+
+                // Informar al frontend si la cuenta acaba de bloquearse
+                if ($user->is_locked) {
+                    return response()->json([
+                        'message' => 'Tu cuenta ha sido bloqueada por mÃºltiples intentos fallidos. Revisa tu correo para desbloquearla.',
+                        'errors'  => ['email' => ['Cuenta bloqueada.']],
+                        'locked'  => true,
+                    ], 423); // 423 Locked â€” cÃ³digo HTTP semÃ¡nticamente correcto
+                }
+
+                $restantes = self::MAX_PW_FAILS - $user->failed_attempts;
+                return response()->json([
+                    'message' => "Credenciales incorrectas. Te quedan {$restantes} intento(s) antes del bloqueo.",
+                    'errors'  => ['email' => ['Las credenciales no coinciden.']],
+                    'locked'  => false,
+                ], 401);
+            }
+
+            return response()->json([
+                'message' => 'Las credenciales no coinciden con nuestros registros.',
+                'errors'  => ['email' => ['Las credenciales no coinciden.']],
+            ], 401);
+        }
+
+        // â”€â”€ 4. Verificar si la cuenta estÃ¡ bloqueada â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        if ($user->is_locked) {
+            return response()->json([
+                'message' => 'Tu cuenta estÃ¡ bloqueada. Revisa tu correo para desbloquearla.',
+                'errors'  => ['email' => ['Cuenta bloqueada.']],
+                'locked'  => true,
+            ], 423);
+        }
+
+        // â”€â”€ 5. Login exitoso â€” limpiar contadores â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        RateLimiter::clear($throttleKey);
+        $user->limpiarIntentos();
+        $user->tokens()->delete();
+
+        $token = $user->createToken(
+            name:      'siget-spa-' . now()->timestamp,
+            abilities: $this->abilitiesPorRol($user->rol),
+        )->plainTextToken;
+
+        return response()->json([
+            'message' => 'SesiÃ³n iniciada correctamente.',
+            'data'    => [
+                'token' => $token,
+                'user'  => new UserResource($user),
+            ],
+        ], 200);
+    }
+
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    //  POST /api/v1/logout  [auth:sanctum]
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    public function logout(Request $request): JsonResponse
+    {
+        $request->user()->currentAccessToken()->delete();
+
+        return response()->json([
+            'message' => 'SesiÃ³n cerrada correctamente.',
+        ], 200);
+    }
+
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    //  GET /api/v1/me  [auth:sanctum]
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    public function me(Request $request): JsonResponse
+    {
+        return response()->json([
+            'data' => new UserResource($request->user()),
+        ], 200);
+    }
+
+    // â”€â”€ Helper privado â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    private function abilitiesPorRol(string $rol): array
+    {
+        return match ($rol) {
+            'admin'    => ['admin:read', 'admin:write', 'admin:delete'],
+            'vocero'   => ['admin:read'],
+            default    => ['admin:read'],
+        };
+    }
+}
+
+=== C:\Users\vivia\Documents\SIGET_V2\app\Http\Controllers\Api\V1\PagoQrController.php ===
+<?php
+
+namespace App\Http\Controllers\Api\V1;
+
+use App\Http\Controllers\Controller;
+use App\Http\Requests\PagoQr\StorePagoQrRequest;
+use App\Http\Requests\PagoQr\StorePagoUsuarioRequest;
+use App\Http\Requests\PagoQr\ValidarPagoQrRequest;
+use App\Http\Resources\PagoQrResource;
+use App\Models\Habitante;
+use App\Models\PagoQr;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Support\Facades\Storage;
+
+/**
+ * CAMBIO (sept-2026, correcciÃ³n 2 del profesor: proceso de pago) â€”
+ * storeUsuario() ahora guarda `metodo_pago` y `banco_origen`
+ * (StorePagoUsuarioRequest ya validÃ³ que metodo_pago coincida con
+ * el mÃ©todo real de la cuenta elegida).
+ *
+ * CAMBIO (oct-2026, PagoForm por pasos para admin/operador) â€”
+ * store() hace lo mismo para el flujo admin/operador: guarda
+ * `cuenta_pago_id`, `metodo_pago` y `banco_origen` (antes no los
+ * recibÃ­a y todo pago quedaba como "pago mÃ³vil" por el default de la
+ * columna), exige comprobante y deduce `familia_id` del habitante en
+ * el servidor en vez de confiar en el cliente. Se arma el arreglo
+ * campo por campo (no se pasa $validated completo a create()).
+ */
+
+class PagoQrController extends Controller
+{
+    // â”€â”€â”€ GET /v1/pagos â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    public function index(Request $request): AnonymousResourceCollection
+    {
+        $query = PagoQr::with(['habitante', 'familia', 'organizacion', 'verificador', 'user', 'cuentaPago'])
+            ->orderByDesc('fecha_pago');
+
+        // Filtro por estado (el panel de validaciÃ³n usa ?estado=pendiente)
+        if ($request->filled('estado')) {
+            $query->where('estado', $request->input('estado'));
+        }
+
+        // Filtro por habitante
+        if ($request->filled('habitante_id')) {
+            $query->where('habitante_id', (int) $request->input('habitante_id'));
+        }
+
+        // Filtro por familia
+        if ($request->filled('familia_id')) {
+            $query->where('familia_id', (int) $request->input('familia_id'));
+        }
+
+        // Filtro por organizaciÃ³n / servicio
+        if ($request->filled('organizacion_id')) {
+            $query->where('organizacion_id', (int) $request->input('organizacion_id'));
+        }
+
+        // BÃºsqueda por referencia bancaria
+        if ($request->filled('search')) {
+            $query->where('referencia_bancaria', 'ilike', '%' . $request->input('search') . '%');
+        }
+
+        return PagoQrResource::collection($query->paginate(20));
+    }
+
+    // â”€â”€â”€ GET /v1/pagos/{pago} â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    public function show(PagoQr $pago): JsonResponse
+    {
+        $pago->load(['habitante', 'familia', 'organizacion', 'verificador', 'user', 'cuentaPago']);
+
+        return response()->json([
+            'message' => 'OK',
+            'data'    => new PagoQrResource($pago),
+        ]);
+    }
+
+    // â”€â”€â”€ POST /v1/pagos â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // Flujo admin/operador: registra un pago vinculado a un habitante.
+    // StorePagoQrRequest ya validÃ³: habitante vigente, cuenta activa,
+    // mÃ©todo coincidente con la cuenta, banco de origen (transferencia),
+    // fecha dentro de 30 dÃ­as y comprobante presente.
+    public function store(StorePagoQrRequest $request): JsonResponse
+    {
+        $validated = $request->validated();
+
+        // La familia se deduce del habitante: no se confÃ­a en el cliente.
+        $habitante = Habitante::findOrFail($validated['habitante_id']);
+
+        // â”€â”€ Subida del comprobante â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+        // Se guarda en storage/app/public/comprobantes/YYYY/MM/
+        // Accesible via /storage/comprobantes/... con storage:link
+        $path = $request->file('comprobante')->store(
+            'comprobantes/' . now()->format('Y/m'),
+            'public'
+        );
+
+        try {
+            $pago = PagoQr::create([
+                'habitante_id'        => $habitante->id,
+                'familia_id'          => $habitante->familia_id,
+                'cuenta_pago_id'      => $validated['cuenta_pago_id'],
+                'referencia_bancaria' => $validated['referencia_bancaria'],
+                'monto'               => $validated['monto'],
+                'concepto_pago'       => $validated['concepto_pago'],
+                'metodo_pago'         => $validated['metodo_pago'],
+                'banco_origen'        => $validated['banco_origen'] ?? null,
+                'fecha_pago'          => $validated['fecha_pago'],
+                'comprobante_path'    => $path,
+                // El estado siempre inicia en 'pendiente' â€” nunca desde el cliente
+                'estado'              => 'pendiente',
+            ]);
+        } catch (\Throwable $e) {
+            // Si falla el INSERT no dejar el comprobante huÃ©rfano en disco
+            Storage::disk('public')->delete($path);
+            throw $e;
+        }
+
+        $pago->load(['habitante', 'familia', 'cuentaPago']);
+
+        return response()->json([
+            'message' => 'Pago registrado correctamente. Queda pendiente de verificaciÃ³n.',
+            'data'    => new PagoQrResource($pago),
+        ], 201);
+    }
+
+    // â”€â”€â”€ POST /v1/pagos/mio â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // FIX (junio 2026): Flujo Portal Ciudadano (rol "usuario").
+    // El pago se vincula directamente al usuario autenticado vÃ­a
+    // user_id, sin requerir habitante_id. El comprobante es obligatorio
+    // (lo exige StorePagoUsuarioRequest).
+    //
+    // FIX (Fase 3): ahora tambiÃ©n guarda 'cuenta_pago_id' â€” obligatorio,
+    // vincula el pago a la cuenta de pago/servicio elegida por el
+    // usuario antes de pagar.
+    public function storeUsuario(StorePagoUsuarioRequest $request): JsonResponse
+    {
+        $validated = $request->validated();
+
+        // El comprobante siempre viene en este flujo (es 'required')
+        $path = $request->file('comprobante')->store(
+            'comprobantes/' . now()->format('Y/m'),
+            'public'
+        );
+
+        $pago = PagoQr::create([
+            'user_id'             => $request->user()->id,
+            'cuenta_pago_id'      => $validated['cuenta_pago_id'],
+            'referencia_bancaria' => $validated['referencia_bancaria'],
+            'monto'               => $validated['monto'],
+            'concepto_pago'       => $validated['concepto_pago'],
+            'metodo_pago'         => $validated['metodo_pago'],
+            'banco_origen'        => $validated['banco_origen'] ?? null,
+            'fecha_pago'          => $validated['fecha_pago'],
+            'comprobante_path'    => $path,
+            'estado'              => 'pendiente',
+        ]);
+
+        $pago->load('cuentaPago');
+
+        return response()->json([
+            'message' => 'Pago registrado correctamente. El Consejo Comunal verificarÃ¡ tu comprobante pronto.',
+            'data'    => new PagoQrResource($pago),
+        ], 201);
+    }
+
+    // â”€â”€â”€ GET /v1/pagos/mis â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // FIX (junio 2026): el usuario consulta el estado de sus propios
+    // pagos, igual patrÃ³n que SugerenciaController::mis().
+    public function misPagos(Request $request): JsonResponse
+    {
+        $pagos = PagoQr::deUsuario($request->user()->id)
+            ->with(['verificador', 'cuentaPago'])
+            ->latest('fecha_pago')
+            ->paginate(10);
+
+        return response()->json([
+            'message' => 'Pagos obtenidos correctamente.',
+            'data'    => PagoQrResource::collection($pagos->items()),
+            'meta'    => [
+                'current_page' => $pagos->currentPage(),
+                'last_page'    => $pagos->lastPage(),
+                'total'        => $pagos->total(),
+            ],
+        ]);
+    }
+
+    // â”€â”€â”€ PATCH /v1/pagos/{pago}/validar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    /**
+     * TransiciÃ³n de estado: pendiente â†’ verificado | rechazado
+     * Solo opera si el pago estÃ¡ en estado 'pendiente'.
+     * Registra quiÃ©n validÃ³ y cuÃ¡ndo.
+     */
+    public function validar(ValidarPagoQrRequest $request, PagoQr $pago): JsonResponse
+    {
+        if (!$pago->esPendiente()) {
+            return response()->json([
+                'message' => "Este pago ya fue {$pago->estado} y no puede modificarse.",
+                'errors'  => [],
+            ], 422);
+        }
+
+        $pago->update([
+            'estado'               => $request->input('estado'),
+            'motivo_rechazo'       => $request->input('motivo_rechazo'),
+            'verificado_por'       => $request->user()->id,
+            'fecha_verificacion'   => now(),
+        ]);
+
+        $pago->load(['habitante', 'familia', 'organizacion', 'verificador', 'user', 'cuentaPago']);
+
+        $msg = $request->input('estado') === 'verificado'
+            ? 'Pago verificado correctamente.'
+            : 'Pago rechazado. Se notificarÃ¡ al habitante.';
+
+        return response()->json([
+            'message' => $msg,
+            'data'    => new PagoQrResource($pago),
+        ]);
+    }
+
+    // â”€â”€â”€ DELETE /v1/pagos/{pago} â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    public function destroy(PagoQr $pago): JsonResponse
+    {
+        // Eliminar el archivo fÃ­sico si existe
+        if ($pago->comprobante_path && Storage::disk('public')->exists($pago->comprobante_path)) {
+            Storage::disk('public')->delete($pago->comprobante_path);
+        }
+
+        $pago->delete(); // soft-delete
+
+        return response()->json([
+            'message' => 'Pago eliminado correctamente.',
+        ]);
+    }
+}
+
+=== C:\Users\vivia\Documents\SIGET_V2\app\Http\Controllers\Api\V1\VoceroController.php ===
+<?php
+
+namespace App\Http\Controllers\Api\V1;
+
+use App\Http\Controllers\Controller;
+use App\Http\Requests\Vocero\StoreVoceroRequest;
+use App\Http\Requests\Vocero\UpdateVoceroRequest;
+use App\Http\Resources\VoceroResource;
+use App\Models\Comite;
+use App\Models\Encuesta;
+use App\Models\EncuestaRespuesta;
+use App\Models\Familia;
+use App\Models\Habitante;
+use App\Models\PagoQr;
+use App\Models\Sede;
+use App\Models\Vocero;
+use App\Services\EstimadorConsumoService;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Support\Facades\Log;
+
+/**
+ * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ *  VoceroController â€” CRUD completo del mÃ³dulo de voceros
+ * â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+ *  RUTAS:
+ *  GET    /api/v1/voceros/form-data  â†’ getFormData() [lectura]
+ *  GET    /api/v1/voceros            â†’ index()        [lectura]
+ *  POST   /api/v1/voceros            â†’ store()        [admin+operador]
+ *  GET    /api/v1/voceros/{id}       â†’ show()         [lectura]
+ *  PUT    /api/v1/voceros/{id}       â†’ update()       [admin+operador]
+ *  DELETE /api/v1/voceros/{id}       â†’ destroy()      [solo admin]
+ *  GET    /api/v1/vocero/resumen     â†’ resumen()      [solo vocero]
+ *  GET    /api/v1/vocero/tareas      â†’ tareas()       [solo vocero]
+ *
+ *  NOTA SOBRE ORDEN DE RUTAS:
+ *  La ruta GET voceros/form-data DEBE registrarse ANTES que
+ *  GET voceros/{vocero} en api.php. Si se registra despuÃ©s,
+ *  Laravel intentarÃ¡ resolver "form-data" como un ID de vocero
+ *  y fallarÃ¡ con 404 o un error de tipo.
+ * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ */
+class VoceroController extends Controller
+{
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    //  GET /api/v1/voceros/form-data
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    /**
+     * Devuelve todos los datos necesarios para el formulario de
+     * registro/ediciÃ³n en UNA SOLA peticiÃ³n HTTP.
+     *
+     * DECISIÃ“N ARQUITECTÃ“NICA â€” Por quÃ© un endpoint dedicado:
+     * El formulario VoceroForm necesita 3 listas: habitantes, sedes
+     * y comitÃ©s. Hacer 3 peticiones separadas al montar el componente
+     * crea un "request waterfall" que aumenta el tiempo de carga.
+     * Con un endpoint que devuelve las 3 listas juntas, React hace
+     * una sola peticiÃ³n y renderiza el formulario completo de inmediato.
+     *
+     * PatrÃ³n: Backend for Frontend (BFF) â€” el endpoint estÃ¡ diseÃ±ado
+     * especÃ­ficamente para las necesidades de la UI, no para un CRUD genÃ©rico.
+     */
+    public function getFormData(): JsonResponse
+    {
+        return response()->json([
+            'data' => [
+                'habitantes' => Habitante::select('id', 'nombres', 'apellidos', 'cedula')
+                    ->whereNull('deleted_at')
+                    ->orderBy('apellidos')
+                    ->orderBy('nombres')
+                    ->get()
+                    ->map(fn ($h) => [
+                        'id'     => $h->id,
+                        'label'  => "{$h->apellidos}, {$h->nombres}" .
+                                    ($h->cedula ? " â€” {$h->cedula}" : ''),
+                    ]),
+
+                'sedes' => Sede::select('id', 'nombre', 'tipo_sede')
+                    ->whereNull('deleted_at')
+                    ->orderBy('nombre')
+                    ->get()
+                    ->map(fn ($s) => [
+                        'id'    => $s->id,
+                        'label' => $s->nombre,
+                    ]),
+
+                'comites' => Comite::select('id', 'nombre')
+                    ->orderBy('nombre')
+                    ->get()
+                    ->map(fn ($c) => [
+                        'id'    => $c->id,
+                        'label' => $c->nombre,
+                    ]),
+            ],
+        ], 200);
+    }
+
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    //  GET /api/v1/voceros
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    /**
+     * Lista paginada con eager loading de las 3 relaciones.
+     * with(['habitante','sede','comite']) resuelve todo en 4 queries
+     * (1 principal + 1 por relaciÃ³n) en vez de N queries por fila.
+     */
+    public function index(Request $request): AnonymousResourceCollection
+    {
+        $query = Vocero::with(['habitante', 'sede', 'comite'])
+            ->when($request->search, fn ($q) =>
+                $q->whereHas('habitante', fn ($h) =>
+                    $h->where('nombres',    'ilike', "%{$request->search}%")
+                    ->orWhere('apellidos','ilike', "%{$request->search}%")
+                    ->orWhere('cedula',   'ilike', "%{$request->search}%")
+                )
+            )
+            ->when($request->sede_id, fn ($q) =>
+                $q->where('sede_id', $request->sede_id)
+            )
+            ->when($request->has('activo'), fn ($q) =>
+                $q->where('esta_activo', $request->boolean('activo'))
+            )
+            ->orderByDesc('esta_activo') // Activos primero
+            ->orderBy('created_at');
+
+        return VoceroResource::collection(
+            $query->paginate($request->integer('per_page', 10))
+        );
+    }
+
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    //  POST /api/v1/voceros
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    public function store(StoreVoceroRequest $request): JsonResponse
+    {
+        $vocero = Vocero::create($request->validated());
+        $vocero->load(['habitante', 'sede', 'comite']);
+
+        return response()->json([
+            'message' => 'Vocero registrado correctamente.',
+            'data'    => new VoceroResource($vocero),
+        ], 201);
+    }
+
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    //  GET /api/v1/voceros/{vocero}
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    public function show(Vocero $vocero): JsonResponse
+    {
+        $vocero->load(['habitante', 'sede', 'comite']);
+
+        return response()->json([
+            'data' => new VoceroResource($vocero),
+        ], 200);
+    }
+
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    //  PUT /api/v1/voceros/{vocero}
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    public function update(UpdateVoceroRequest $request, Vocero $vocero): JsonResponse
+    {
+        try {
+            $vocero->update($request->validated());
+            $vocero->load(['habitante', 'sede', 'comite']);
+
+            return response()->json([
+                'message' => 'Vocero actualizado correctamente.',
+                'data'    => new VoceroResource($vocero),
+            ], 200);
+
+        } catch (\Exception $e) {
+            Log::error('Error al actualizar vocero', [
+                'vocero_id' => $vocero->id,
+                'error'     => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'message' => 'Error interno al actualizar el vocero.',
+                'errors'  => [],
+            ], 500);
+        }
+    }
+
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    //  DELETE /api/v1/voceros/{vocero}
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    /**
+     * DECISIÃ“N â€” Desactivar vs Eliminar:
+     * Los voceros no se eliminan fÃ­sicamente. Un vocero que termina
+     * su mandato se desactiva (esta_activo = false) para conservar
+     * el registro histÃ³rico. La eliminaciÃ³n fÃ­sica solo aplica en
+     * casos de error de carga (admin).
+     *
+     * Por eso destroy() hace soft-logic (cambia esta_activo a false)
+     * en vez de DELETE fÃ­sico. Solo en el 100% necesario (error de
+     * carga) el admin podrÃ­a eliminarlo desde un endpoint separado.
+     */
+    public function destroy(Vocero $vocero): JsonResponse
+    {
+        $nombre = $vocero->habitante?->nombres . ' ' . $vocero->habitante?->apellidos;
+
+        // Desactivar en vez de eliminar â€” preserva el historial
+        $vocero->update(['esta_activo' => false, 'fecha_fin' => now()->toDateString()]);
+
+        return response()->json([
+            'message' => "{$nombre} fue dado de baja como vocero activo.",
+        ], 200);
+    }
+
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    //  Dashboard del vocero (oct-2026) â€” resumen() y tareas()
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    /**
+     * VoceroDashboard.jsx llama a GET /v1/vocero/resumen y /v1/vocero/tareas,
+     * pero ninguna de las dos existÃ­a (404). El contrato de respuesta sale
+     * de lo que ese componente consume:
+     *   resumen â†’ { nombre_sede, familias_sector, habitantes_sector, pagos_pendientes }
+     *   tareas  â†’ [ { id, titulo, descripcion, estado, fecha_limite } ]
+     *
+     * Solo devuelve CONTEOS agregados de las sedes donde el usuario tiene
+     * un mandato activo: nunca nombres ni datos de familias (restricciÃ³n del
+     * profesor: el vocero no accede al censo).
+     */
+    public function resumen(Request $request): JsonResponse
+    {
+        $sedes = $this->sedesDelVocero($request);
+
+        $familiasDelSector = Familia::whereIn('sede_id', $sedes);
+
+        return response()->json([
+            'data' => [
+                'nombre_sede'       => Sede::whereIn('id', $sedes)->orderBy('nombre')->pluck('nombre')->implode(', '),
+                'familias_sector'   => (clone $familiasDelSector)->count(),
+                // Subconsulta sobre familias vigentes: una familia dada de baja
+                // no aporta habitantes al conteo.
+                'habitantes_sector' => Habitante::whereIn('familia_id', (clone $familiasDelSector)->select('id'))->count(),
+                // Mismo universo que ve el vocero en el mÃ³dulo Pagos QR
+                'pagos_pendientes'  => PagoQr::where('estado', 'pendiente')->count(),
+            ],
+        ], 200);
+    }
+
+    /**
+     * Tareas de censo pendientes: una por cada encuesta ACTIVA que todavÃ­a
+     * tiene familias por atender en las sedes del vocero. Las encuestas
+     * ya completadas no se listan (la UI muestra "no tienes tareas").
+     *
+     * Estados (los que entiende ESTADO_CONFIG en VoceroDashboard.jsx):
+     *  - Encuesta de gas: critico (hay gas vencido) Â· en_progreso (hay por
+     *    vencer) Â· pendiente (solo falta historial para estimar).
+     *  - Otras encuestas: critico (â‰¥ 50 % de familias sin entrega) Â·
+     *    en_progreso (menos del 50 %).
+     */
+    public function tareas(Request $request, EstimadorConsumoService $estimador): JsonResponse
+    {
+        $sedes      = $this->sedesDelVocero($request);
+        $familiaIds = Familia::whereIn('sede_id', $sedes)->pluck('id');
+        $total      = $familiaIds->count();
+
+        if ($total === 0) {
+            return response()->json(['data' => []], 200);
+        }
+
+        $tareas = [];
+
+        foreach (Encuesta::activas()->orderBy('fecha_cierre')->orderBy('id')->get() as $encuesta) {
+            if ($encuesta->esDeGas()) {
+                $conteo   = $estimador->estimarPorFamilias($familiaIds, $encuesta->tipo)->countBy('estado');
+                $vencidas = (int) ($conteo['vencido'] ?? 0);
+                $proximas = (int) ($conteo['proximo'] ?? 0);
+                $sinDatos = (int) ($conteo['sin_datos'] ?? 0);
+
+                if ($vencidas + $proximas + $sinDatos === 0) {
+                    continue; // todas al dÃ­a
+                }
+
+                $estado = match (true) {
+                    $vencidas > 0 => 'critico',
+                    $proximas > 0 => 'en_progreso',
+                    default       => 'pendiente',
+                };
+
+                $descripcion = "{$vencidas} familia(s) con gas vencido, {$proximas} por vencer y {$sinDatos} sin historial suficiente (de {$total}).";
+            } else {
+                $conRespuesta = EncuestaRespuesta::where('encuesta_id', $encuesta->id)
+                    ->whereIn('familia_id', $familiaIds)
+                    ->distinct()
+                    ->count('familia_id');
+
+                $pendientes = $total - $conRespuesta;
+
+                if ($pendientes <= 0) {
+                    continue; // cobertura completa
+                }
+
+                $estado      = ($pendientes / $total) >= 0.5 ? 'critico' : 'en_progreso';
+                $descripcion = "{$pendientes} de {$total} familias todavÃ­a sin entrega registrada.";
+            }
+
+            $tareas[] = [
+                'id'           => $encuesta->id,
+                'titulo'       => $encuesta->nombre,
+                'descripcion'  => $descripcion,
+                'estado'       => $estado,
+                'fecha_limite' => $encuesta->fecha_cierre?->toDateString(),
+            ];
+        }
+
+        return response()->json(['data' => $tareas], 200);
+    }
+
+    /**
+     * Sedes donde el usuario autenticado tiene un mandato de vocero ACTIVO.
+     * Un habitante puede tener varios registros (uno por mandato), por eso
+     * se usa el scope activos() y se devuelven todas sus sedes, no solo la
+     * primera. Sin mandato activo (o sin habitante vinculado) â†’ 403.
+     *
+     * @return array<int, int>
+     */
+    private function sedesDelVocero(Request $request): array
+    {
+        $habitanteId = $request->user()->habitante_id;
+
+        $sedes = $habitanteId
+            ? Vocero::activos()->where('habitante_id', $habitanteId)->pluck('sede_id')->unique()->values()->all()
+            : [];
+
+        if ($sedes === []) {
+            abort(403, 'No se encontrÃ³ un registro de vocero activo asociado a este usuario.');
+        }
+
+        return array_map('intval', $sedes);
+    }
+}
+
+=== C:\Users\vivia\Documents\SIGET_V2\app\Services\EstimadorConsumoService.php ===
+<?php
+
+namespace App\Services;
+
+use App\Models\Encuesta;
+use App\Models\EncuestaRespuesta;
+use App\Models\Familia;
+use Carbon\Carbon;
+use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
+
+/**
+ * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ *  EstimadorConsumoService
+ * â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+ *  Para cada familia calcula el promedio de dÃ­as entre entregas
+ *  registradas de un tipo (normalmente 'bombona_gas') y proyecta la
+ *  fecha en que se le agotarÃ¡ la prÃ³xima, para anticipar el
+ *  desabastecimiento.
+ *
+ *  Requiere al menos 2 FECHAS DISTINTAS de entrega; con menos
+ *  devuelve 'sin_datos' (no hay base para proyectar y no se
+ *  inventa una fecha). Varias entregas el mismo dÃ­a cuentan como una.
+ *
+ *  REESCRITURA (oct-2026): la versiÃ³n original hacÃ­a una consulta
+ *  por familia y el mapa recorre todas las calles â†’ miles de
+ *  consultas por carga. Ahora cada operaciÃ³n pÃºblica resuelve el
+ *  cÃ¡lculo con un nÃºmero FIJO de consultas (familias + entregas),
+ *  sin importar cuÃ¡ntas calles o familias haya.
+ *
+ *  Las diferencias de dÃ­as se calculan con timestamps (no con
+ *  Carbon::diffInDays) para que el resultado no dependa de la
+ *  versiÃ³n de Carbon (en Carbon 3 devuelve float y con signo).
+ * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ */
+class EstimadorConsumoService
+{
+    public const DIAS_ALERTA_PROXIMO = 7;
+
+    private const SEGUNDOS_POR_DIA = 86400;
+
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    //  Familias â€” predicciÃ³n de agotamiento
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+    /**
+     * Estima el consumo de varias familias con UNA sola consulta de entregas.
+     *
+     * @param  array<int,int>|Collection  $familiaIds
+     * @return Collection  indexada por familia_id; cada valor es el arreglo de estimar()
+     */
+    public function estimarPorFamilias(array|Collection $familiaIds, string $tipo = Encuesta::TIPO_GAS): Collection
+    {
+        $ids = collect($familiaIds)->map(fn ($id) => (int) $id)->unique()->values();
+
+        if ($ids->isEmpty()) {
+            return collect();
+        }
+
+        $fechasPorFamilia = EncuestaRespuesta::query()
+            ->whereIn('familia_id', $ids->all())
+            ->whereHas('encuesta', fn ($q) => $q->where('tipo', $tipo))
+            ->orderBy('fecha_entrega')
+            ->get(['familia_id', 'fecha_entrega'])
+            ->groupBy('familia_id');
+
+        return $ids->mapWithKeys(fn (int $id) => [
+            $id => $this->estimar($id, ($fechasPorFamilia->get($id) ?? collect())->pluck('fecha_entrega')),
+        ]);
+    }
+
+    /**
+     * Agrega la estimaciÃ³n de cada calle. Una consulta de familias + una de entregas.
+     *
+     * @param  array<int,int>  $calleIds
+     * @return array<int,array{total_familias:int,conteo:array<string,int>,riesgo:int|null}>
+     */
+    public function resumenPorCalles(array $calleIds, string $tipo = Encuesta::TIPO_GAS): array
+    {
+        $familiasPorCalle = $this->familiasAgrupadasPorCalle($calleIds);
+        $estimaciones     = $this->estimarPorFamilias($familiasPorCalle->flatten(), $tipo);
+
+        $resultado = [];
+
+        foreach ($calleIds as $calleId) {
+            $ids    = $familiasPorCalle->get($calleId) ?? collect();
+            $conteo = ['sin_datos' => 0, 'al_dia' => 0, 'proximo' => 0, 'vencido' => 0];
+
+            foreach ($ids as $familiaId) {
+                $conteo[$estimaciones[$familiaId]['estado']]++;
+            }
+
+            $resultado[$calleId] = [
+                'total_familias' => $ids->count(),
+                'conteo'         => $conteo,
+                'riesgo'         => $this->riesgoDesdeConteo($conteo, $ids->count()),
+            ];
+        }
+
+        return $resultado;
+    }
+
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    //  Familias â€” cobertura simple (CLAP y otros tipos)
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+    /**
+     * Cobertura por calle: familias con al menos una entrega en la encuesta
+     * frente al total de la calle.
+     *
+     * @param  array<int,int>  $calleIds
+     * @return array<int,array{total_familias:int,familias_con_respuesta:int,familias_pendientes:int,riesgo:int|null}>
+     */
+    public function resumenCoberturaPorCalles(array $calleIds, int $encuestaId): array
+    {
+        $familiasPorCalle = $this->familiasAgrupadasPorCalle($calleIds);
+        $todas            = $familiasPorCalle->flatten()->all();
+
+        $conRespuesta = $todas === []
+            ? collect()
+            : EncuestaRespuesta::query()
+                ->where('encuesta_id', $encuestaId)
+                ->whereIn('familia_id', $todas)
+                ->distinct()
+                ->pluck('familia_id')
+                ->flip(); // las claves pasan a ser los familia_id (bÃºsqueda O(1))
+
+        $resultado = [];
+
+        foreach ($calleIds as $calleId) {
+            $ids        = $familiasPorCalle->get($calleId) ?? collect();
+            $total      = $ids->count();
+            $cubiertas  = $ids->filter(fn ($id) => $conRespuesta->has($id))->count();
+            $pendientes = $total - $cubiertas;
+
+            // null = calle sin familias (no hay nada que medir)
+            // 0 = todas cubiertas | 1 = menos de la mitad sin cubrir | 2 = mitad o mÃ¡s sin cubrir
+            $riesgo = match (true) {
+                $total === 0                  => null,
+                $pendientes === 0             => 0,
+                ($pendientes / $total) < 0.5  => 1,
+                default                       => 2,
+            };
+
+            $resultado[$calleId] = [
+                'total_familias'         => $total,
+                'familias_con_respuesta' => $cubiertas,
+                'familias_pendientes'    => $pendientes,
+                'riesgo'                 => $riesgo,
+            ];
+        }
+
+        return $resultado;
+    }
+
+    /**
+     * Fecha de la Ãºltima entrega de cada familia en una encuesta (detalle de calle).
+     *
+     * @param  array<int,int>|Collection  $familiaIds
+     * @return Collection  familia_id => 'Y-m-d'
+     */
+    public function ultimaEntregaPorFamilia(array|Collection $familiaIds, int $encuestaId): Collection
+    {
+        $ids = collect($familiaIds)->all();
+
+        if ($ids === []) {
+            return collect();
+        }
+
+        return EncuestaRespuesta::query()
+            ->where('encuesta_id', $encuestaId)
+            ->whereIn('familia_id', $ids)
+            ->select('familia_id', DB::raw('MAX(fecha_entrega) as ultima'))
+            ->groupBy('familia_id')
+            ->pluck('ultima', 'familia_id')
+            ->map(fn ($fecha) => Carbon::parse($fecha)->toDateString());
+    }
+
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    //  CÃ¡lculo interno
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+    /**
+     * @param  Collection  $fechas  fechas de entrega de UNA familia (Carbon o string)
+     */
+    private function estimar(int $familiaId, Collection $fechas): array
+    {
+        $dias = $fechas
+            ->map(fn ($f) => Carbon::parse($f)->startOfDay())
+            ->unique(fn (Carbon $d) => $d->toDateString())
+            ->sortBy(fn (Carbon $d) => $d->getTimestamp())
+            ->values();
+
+        if ($dias->count() < 2) {
+            return [
+                'familia_id'                 => $familiaId,
+                'estado'                     => 'sin_datos',
+                'promedio_dias_duracion'     => null,
+                'ultima_entrega'             => $dias->last()?->toDateString(),
+                'fecha_estimada_agotamiento' => null,
+                'dias_restantes'             => null,
+            ];
+        }
+
+        $sumaDias = 0;
+        for ($i = 1; $i < $dias->count(); $i++) {
+            $sumaDias += (int) round(
+                ($dias[$i]->getTimestamp() - $dias[$i - 1]->getTimestamp()) / self::SEGUNDOS_POR_DIA
+            );
+        }
+
+        $promedio      = max(1, (int) round($sumaDias / ($dias->count() - 1)));
+        $ultima        = $dias->last();
+        $fechaEstimada = $ultima->copy()->addDays($promedio);
+        $diasRestantes = (int) round(
+            ($fechaEstimada->getTimestamp() - Carbon::today()->getTimestamp()) / self::SEGUNDOS_POR_DIA
+        );
+
+        return [
+            'familia_id'                 => $familiaId,
+            'estado'                     => $this->clasificarEstado($diasRestantes),
+            'promedio_dias_duracion'     => $promedio,
+            'ultima_entrega'             => $ultima->toDateString(),
+            'fecha_estimada_agotamiento' => $fechaEstimada->toDateString(),
+            'dias_restantes'             => $diasRestantes,
+        ];
+    }
+
+    private function clasificarEstado(int $diasRestantes): string
+    {
+        return match (true) {
+            $diasRestantes < 0                          => 'vencido',
+            $diasRestantes <= self::DIAS_ALERTA_PROXIMO => 'proximo',
+            default                                     => 'al_dia',
+        };
+    }
+
+    /**
+     * Riesgo agregado de una calle para pintarla en el mapa:
+     *  null = sin familias o ninguna con datos suficientes (se muestra "sin datos",
+     *         NO verde: verde significa "al dÃ­a", y aquÃ­ no se sabe)
+     *  2 = hay familias vencidas | 1 = hay prÃ³ximas a vencer | 0 = todas al dÃ­a
+     *
+     * @param  array<string,int>  $conteo
+     */
+    private function riesgoDesdeConteo(array $conteo, int $total): ?int
+    {
+        if ($total === 0 || $conteo['sin_datos'] === $total) {
+            return null;
+        }
+
+        return match (true) {
+            $conteo['vencido'] > 0 => 2,
+            $conteo['proximo'] > 0 => 1,
+            default                => 0,
+        };
+    }
+
+    /**
+     * Familias vigentes (sin soft delete) agrupadas por calle: calle_id => [familia_id, ...]
+     *
+     * @param  array<int,int>  $calleIds
+     */
+    private function familiasAgrupadasPorCalle(array $calleIds): Collection
+    {
+        if ($calleIds === []) {
+            return collect();
+        }
+
+        return Familia::query()
+            ->whereIn('calle_id', $calleIds)
+            ->get(['id', 'calle_id'])
+            ->groupBy('calle_id')
+            ->map(fn (Collection $filas) => $filas->pluck('id')->map(fn ($id) => (int) $id)->values());
+    }
+}
+
+=== C:\Users\vivia\Documents\SIGET_V2\tests\Feature\ExampleTest.php ===
+<?php
+
+namespace Tests\Feature;
+
+// use Illuminate\Foundation\Testing\RefreshDatabase;
+use Tests\TestCase;
+
+class ExampleTest extends TestCase
+{
+    /**
+     * A basic test example.
+     */
+    public function test_the_application_returns_a_successful_response(): void
+    {
+        $response = $this->get('/');
+
+        $response->assertStatus(200);
+    }
+}
+
+=== C:\Users\vivia\Documents\SIGET_V2\tests\Unit\ExampleTest.php ===
+<?php
+
+namespace Tests\Unit;
+
+use PHPUnit\Framework\TestCase;
+
+class ExampleTest extends TestCase
+{
+    /**
+     * A basic test example.
+     */
+    public function test_that_true_is_true(): void
+    {
+        $this->assertTrue(true);
+    }
+}
+
+=== C:\Users\vivia\Documents\SIGET_V2\database\factories\UserFactory.php ===
+<?php
+
+namespace Database\Factories;
+
+use App\Models\User;
+use Illuminate\Database\Eloquent\Factories\Factory;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Str;
+
+/**
+ * @extends Factory<User>
+ */
+class UserFactory extends Factory
+{
+    /**
+     * The current password being used by the factory.
+     */
+    protected static ?string $password;
+
+    /**
+     * Define the model's default state.
+     *
+     * @return array<string, mixed>
+     */
+    public function definition(): array
+    {
+        return [
+            'name' => fake()->name(),
+            'email' => fake()->unique()->safeEmail(),
+            'email_verified_at' => now(),
+            'password' => static::$password ??= Hash::make('password'),
+            'remember_token' => Str::random(10),
+        ];
+    }
+
+    /**
+     * Indicate that the model's email address should be unverified.
+     */
+    public function unverified(): static
+    {
+        return $this->state(fn (array $attributes) => [
+            'email_verified_at' => null,
+        ]);
+    }
+}

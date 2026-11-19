@@ -1,0 +1,1007 @@
+﻿
+=== C:\Users\vivia\Documents\SIGET_V2\app\Http\Controllers\Api\V1\UsuarioController.php ===
+<?php
+
+namespace App\Http\Controllers\Api\V1;
+
+use App\Http\Controllers\Controller;
+use App\Http\Requests\Usuario\CambiarEstadoRequest;
+use App\Http\Requests\Usuario\CambiarRolRequest;
+use App\Http\Resources\UsuarioAdminResource;
+use App\Models\User;
+use DomainException;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Route;
+use Illuminate\Validation\Rule;
+
+/**
+ * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ *  UsuarioController â€” ConfiguraciÃ³n: usuarios y roles (SOLO ADMIN)
+ * â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+ *  CorrecciÃ³n del profesor (sept-2026): los roles no pueden
+ *  cambiarse "por base de datos" â€” debe existir un mÃ³dulo de
+ *  configuraciÃ³n dentro del sistema.
+ *
+ *  DecisiÃ³n de diseÃ±o (opciÃ³n A): los 3 roles (admin, vocero y usuario;
+ *  el operador se eliminÃ³ en oct-2026) siguen siendo fijos
+ *  (enum users.rol). Este controlador gestiona la ASIGNACIÃ“N de
+ *  roles y el estado de las cuentas; no toca el esquema.
+ *
+ *  Reglas de robustez:
+ *    Â· Un admin no puede cambiar su propio rol ni desactivarse.
+ *    Â· Nunca puede quedar el sistema sin otro administrador activo.
+ *    Â· Cambiar el rol o desactivar revoca los tokens del usuario,
+ *      asÃ­ el SPA (que guarda `permisos` en localStorage) se ve
+ *      obligado a reautenticarse con los permisos nuevos.
+ *    Â· Cada cambio queda en AuditorÃ­a (User estÃ¡ observado por
+ *      AdminAuditoriaObserver).
+ *
+ *  Desactivar = SoftDelete (los registros histÃ³ricos conservan a
+ *  su autor gracias a withTrashed() en las relaciones).
+ *
+ *  Rutas: Capa 4 (role:admin) en routes/api.php.
+ * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ */
+class UsuarioController extends Controller
+{
+    /** Roles vÃ¡lidos del sistema (fuente Ãºnica para validaciÃ³n y matriz). */
+    public const ROLES = ['admin', 'vocero', 'usuario'];
+
+    private const ESTADOS       = ['activo', 'inactivo', 'bloqueado'];
+    private const MAX_PER_PAGE  = 50;
+
+    private const ROLES_INFO = [
+        'admin' => [
+            'etiqueta'    => 'Administrador',
+            'descripcion' => 'GestiÃ³n completa del sistema: eliminaciÃ³n de registros, auditorÃ­a y configuraciÃ³n de usuarios y roles.',
+        ],
+        'vocero' => [
+            'etiqueta'    => 'Vocero',
+            'descripcion' => 'Consulta los mÃ³dulos comunales y el mapa de calor (solo conteos de sus sedes); sin acceso a familias ni habitantes (instrucciÃ³n del profesor).',
+        ],
+        'usuario' => [
+            'etiqueta'    => 'Ciudadano',
+            'descripcion' => 'Portal Ciudadano: pagos QR propios, noticias, sugerencias y perfil. Sin acceso a los mÃ³dulos administrativos.',
+        ],
+    ];
+
+    /**
+     * MÃ³dulos que se muestran en la matriz de permisos.
+     * Clave = primer segmento de la URI bajo /api/v1.
+     */
+    private const MODULOS = [
+        'familias'       => 'Familias y habitantes',
+        'voceros'        => 'Voceros',
+        'proyectos'      => 'Proyectos',
+        'beneficios'     => 'Beneficios',
+        'organizaciones' => 'Organizaciones',
+        'pagos'          => 'Pagos QR',
+        'cuentas-pago'   => 'Cuentas de pago',
+        'comunicados'    => 'Comunicados',
+        'noticias'       => 'Noticias',
+        'sugerencias'    => 'Sugerencias',
+        'reportes'       => 'Reportes PDF',
+        'dashboard'      => 'EstadÃ­sticas del dashboard',
+        'auditorias'     => 'AuditorÃ­a',
+        'usuarios'       => 'Usuarios y roles',
+        // Oct-2026: mÃ³dulo de georreferenciaciÃ³n
+        'encuestas'      => 'Encuestas y entregas',
+        'mapa-calor'     => 'Mapa de calor',
+    ];
+
+    /** Segmentos de URI que se agrupan bajo otro mÃ³dulo. */
+    private const ALIAS_MODULO = [
+        'configuracion'       => 'usuarios',
+        // Oct-2026: estos segmentos de URI pertenecen a mÃ³dulos del mapa de calor
+        'encuesta-respuestas' => 'encuestas',
+        'calles'              => 'mapa-calor',
+    ];
+
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    //  GET /api/v1/usuarios
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    public function index(Request $request): JsonResponse
+    {
+        $filtros = $request->validate([
+            'search'   => ['nullable', 'string', 'max:100'],
+            'rol'      => ['nullable', Rule::in(self::ROLES)],
+            'estado'   => ['nullable', Rule::in(self::ESTADOS)],
+            'page'     => ['nullable', 'integer', 'min:1'],
+            'per_page' => ['nullable', 'integer', 'min:1'],
+        ]);
+
+        $porPagina = min(max((int) ($filtros['per_page'] ?? 15), 1), self::MAX_PER_PAGE);
+
+        $query = User::query()
+            ->withTrashed()
+            ->with('habitante:id,nombres,apellidos,cedula');
+
+        if (! empty($filtros['search'])) {
+            // ilike (PostgreSQL) + escape de comodines ingresados por el usuario
+            $termino = '%' . addcslashes($filtros['search'], '\\%_') . '%';
+            $query->where(function ($q) use ($termino) {
+                $q->where('name', 'ilike', $termino)
+                  ->orWhere('email', 'ilike', $termino)
+                  ->orWhere('cedula', 'ilike', $termino);
+            });
+        }
+
+        if (! empty($filtros['rol'])) {
+            $query->where('rol', $filtros['rol']);
+        }
+
+        match ($filtros['estado'] ?? null) {
+            'activo'    => $query->whereNull('deleted_at')->where('is_locked', false),
+            'inactivo'  => $query->whereNotNull('deleted_at'),
+            'bloqueado' => $query->whereNull('deleted_at')->where('is_locked', true),
+            default     => null,
+        };
+
+        $paginador = $query->orderBy('name')->orderBy('id')->paginate($porPagina);
+
+        return response()->json([
+            'message' => 'Usuarios obtenidos correctamente.',
+            'data'    => UsuarioAdminResource::collection($paginador->getCollection())->resolve($request),
+            'meta'    => [
+                'current_page' => $paginador->currentPage(),
+                'last_page'    => $paginador->lastPage(),
+                'per_page'     => $paginador->perPage(),
+                'total'        => $paginador->total(),
+                'resumen'      => $this->resumen(),
+            ],
+        ], 200);
+    }
+
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    //  PATCH /api/v1/usuarios/{usuario}/rol
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    public function cambiarRol(CambiarRolRequest $request, User $usuario): JsonResponse
+    {
+        $nuevoRol = $request->validated('rol');
+
+        if ($request->user()->is($usuario)) {
+            return $this->error('No puedes cambiar tu propio rol.', 'rol');
+        }
+
+        if ($usuario->rol === $nuevoRol) {
+            return $this->error('El usuario ya tiene ese rol.', 'rol');
+        }
+
+        try {
+            DB::transaction(function () use ($usuario, $nuevoRol) {
+                // Si se le quita el rol admin, debe quedar otro admin activo.
+                if ($usuario->rol === 'admin') {
+                    $this->asegurarOtroAdmin($usuario);
+                }
+
+                $usuario->update(['rol' => $nuevoRol]);
+                $usuario->tokens()->delete();
+            });
+        } catch (DomainException $e) {
+            return $this->error($e->getMessage(), 'rol');
+        }
+
+        return $this->respuestaUsuario(
+            $usuario,
+            'Rol actualizado. La sesiÃ³n del usuario se cerrÃ³ y los permisos nuevos aplican al volver a entrar.'
+        );
+    }
+
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    //  PATCH /api/v1/usuarios/{usuario}/estado   (withTrashed)
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    public function cambiarEstado(CambiarEstadoRequest $request, User $usuario): JsonResponse
+    {
+        $activar = $request->boolean('activo');
+
+        if ($request->user()->is($usuario)) {
+            return $this->error('No puedes desactivar tu propia cuenta.', 'activo');
+        }
+
+        if ($activar) {
+            if (! $usuario->trashed()) {
+                return $this->error('La cuenta ya estÃ¡ activa.', 'activo');
+            }
+
+            $usuario->restore();
+
+            return $this->respuestaUsuario($usuario, 'Cuenta reactivada correctamente.');
+        }
+
+        if ($usuario->trashed()) {
+            return $this->error('La cuenta ya estÃ¡ desactivada.', 'activo');
+        }
+
+        try {
+            DB::transaction(function () use ($usuario) {
+                if ($usuario->rol === 'admin') {
+                    $this->asegurarOtroAdmin($usuario);
+                }
+
+                $usuario->tokens()->delete();
+                $usuario->delete(); // SoftDelete
+            });
+        } catch (DomainException $e) {
+            return $this->error($e->getMessage(), 'activo');
+        }
+
+        return $this->respuestaUsuario($usuario, 'Cuenta desactivada. El usuario ya no puede iniciar sesiÃ³n.');
+    }
+
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    //  PATCH /api/v1/usuarios/{usuario}/desbloquear
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    public function desbloquear(Request $request, User $usuario): JsonResponse
+    {
+        if (! $usuario->is_locked) {
+            return $this->error('La cuenta no estÃ¡ bloqueada.', 'is_locked');
+        }
+
+        $usuario->desbloquear();
+
+        return $this->respuestaUsuario($usuario, 'Cuenta desbloqueada. Ya puede iniciar sesiÃ³n.');
+    }
+
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    //  GET /api/v1/configuracion/permisos
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    /**
+     * Matriz de permisos por rol y mÃ³dulo, DERIVADA de las rutas
+     * reales registradas (middleware `role:` de routes/api.php).
+     * No es texto escrito a mano: si una ruta cambia de capa, la
+     * matriz cambia con ella y nunca queda desincronizada.
+     *
+     *   GET            â†’ lectura
+     *   POST/PUT/PATCH â†’ escritura
+     *   DELETE         â†’ eliminacion
+     */
+    public function matrizPermisos(): JsonResponse
+    {
+        $vacio  = ['lectura' => false, 'escritura' => false, 'eliminacion' => false];
+        $matriz = [];
+
+        foreach (array_keys(self::MODULOS) as $clave) {
+            $matriz[$clave] = array_fill_keys(self::ROLES, $vacio);
+        }
+
+        foreach (Route::getRoutes()->getRoutes() as $ruta) {
+            $partes = explode('/', $ruta->uri());
+
+            if (($partes[0] ?? null) !== 'api' || ($partes[1] ?? null) !== 'v1') {
+                continue;
+            }
+
+            $segmento = self::ALIAS_MODULO[$partes[2] ?? ''] ?? ($partes[2] ?? null);
+
+            if ($segmento === null || ! isset($matriz[$segmento])) {
+                continue;
+            }
+
+            $rolesRuta = $this->rolesDeRuta($ruta);
+
+            if ($rolesRuta === null) {
+                continue; // ruta pÃºblica
+            }
+
+            foreach ($ruta->methods() as $metodo) {
+                $accion = match ($metodo) {
+                    'GET'                  => 'lectura',
+                    'POST', 'PUT', 'PATCH' => 'escritura',
+                    'DELETE'               => 'eliminacion',
+                    default                => null, // HEAD, OPTIONS
+                };
+
+                if ($accion === null) {
+                    continue;
+                }
+
+                foreach ($rolesRuta as $rol) {
+                    $matriz[$segmento][$rol][$accion] = true;
+                }
+            }
+        }
+
+        $modulos = [];
+        foreach (self::MODULOS as $clave => $etiqueta) {
+            $modulos[] = [
+                'clave'    => $clave,
+                'etiqueta' => $etiqueta,
+                'permisos' => $matriz[$clave],
+            ];
+        }
+
+        $roles = [];
+        foreach (self::ROLES as $clave) {
+            $roles[] = array_merge(['clave' => $clave], self::ROLES_INFO[$clave]);
+        }
+
+        return response()->json([
+            'message' => 'Matriz de permisos generada a partir de las rutas de la API.',
+            'data'    => [
+                'roles'   => $roles,
+                'modulos' => $modulos,
+            ],
+        ], 200);
+    }
+
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    //  Helpers privados
+    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+
+    /**
+     * Roles que pueden llamar a una ruta segÃºn su middleware.
+     * null â†’ la ruta es pÃºblica (sin auth:sanctum).
+     */
+    private function rolesDeRuta(\Illuminate\Routing\Route $ruta): ?array
+    {
+        $middleware = collect($ruta->gatherMiddleware())->filter(fn ($m) => is_string($m));
+
+        foreach ($middleware as $m) {
+            if (str_starts_with($m, 'role:')) {
+                return array_values(array_intersect(self::ROLES, explode(',', substr($m, 5))));
+            }
+        }
+
+        return $middleware->contains('auth:sanctum') ? self::ROLES : null;
+    }
+
+    /**
+     * Garantiza que exista al menos OTRO administrador activo y no
+     * bloqueado. Debe llamarse dentro de DB::transaction(): el
+     * lockForUpdate evita que dos admins se degraden a la vez y
+     * dejen el sistema sin administrador.
+     */
+    private function asegurarOtroAdmin(User $objetivo): void
+    {
+        $otros = User::where('rol', 'admin')
+            ->where('is_locked', false)
+            ->where('id', '!=', $objetivo->id)
+            ->lockForUpdate()
+            ->pluck('id');
+
+        if ($otros->isEmpty()) {
+            throw new DomainException(
+                'Debe existir al menos otro administrador activo. Asigna primero el rol de administrador a otra cuenta.'
+            );
+        }
+    }
+
+    /** Conteos para los chips del mÃ³dulo (cuentas activas por rol, bloqueadas, inactivas). */
+    private function resumen(): array
+    {
+        $porRol = User::select('rol', DB::raw('COUNT(*) as total'))
+            ->groupBy('rol')
+            ->pluck('total', 'rol');
+
+        $conteoPorRol = [];
+        foreach (self::ROLES as $rol) {
+            $conteoPorRol[$rol] = (int) ($porRol[$rol] ?? 0);
+        }
+
+        return [
+            'activos'    => array_sum($conteoPorRol),
+            'por_rol'    => $conteoPorRol,
+            'bloqueados' => User::where('is_locked', true)->count(),
+            'inactivos'  => User::onlyTrashed()->count(),
+        ];
+    }
+
+    private function respuestaUsuario(User $usuario, string $mensaje): JsonResponse
+    {
+        $actualizado = User::withTrashed()
+            ->with('habitante:id,nombres,apellidos,cedula')
+            ->findOrFail($usuario->id);
+
+        return response()->json([
+            'message' => $mensaje,
+            'data'    => (new UsuarioAdminResource($actualizado))->resolve(),
+        ], 200);
+    }
+
+    private function error(string $mensaje, string $campo, int $status = 422): JsonResponse
+    {
+        return response()->json([
+            'message' => $mensaje,
+            'errors'  => [$campo => [$mensaje]],
+        ], $status);
+    }
+}
+
+=== C:\Users\vivia\Documents\SIGET_V2\app\Http\Controllers\Api\V1\FamiliaController.php ===
+<?php
+
+namespace App\Http\Controllers\Api\V1;
+
+use App\Http\Controllers\Controller;
+use App\Http\Requests\Familia\StoreFamiliaRequest;
+use App\Http\Requests\Familia\UpdateFamiliaRequest;
+use App\Http\Resources\FamiliaResource;
+use App\Models\Familia;
+use App\Models\Habitante;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+
+/**
+ * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ *  FamiliaController â€” CRUD completo + habitantes anidados
+ * â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+ *  GET    /api/v1/familias           â†’ index()   [todos los roles]
+ *  POST   /api/v1/familias           â†’ store()   [admin+operador]
+ *  GET    /api/v1/familias/{id}      â†’ show()    [todos los roles]
+ *  PUT    /api/v1/familias/{id}      â†’ update()  [admin+operador]
+ *  DELETE /api/v1/familias/{id}      â†’ destroy() [solo admin]
+ *
+ *  CAMBIO ARQUITECTÃ“NICO (sept-2026, instrucciÃ³n del profesor):
+ *  El mÃ³dulo de Habitantes se elimina como mÃ³dulo independiente.
+ *  Los habitantes de una familia ahora se crean, editan y dan de
+ *  baja DENTRO del mismo formulario de Familia (un array
+ *  `habitantes[]` en el payload de store()/update()). Ya no
+ *  existen endpoints /api/v1/habitantes â€” el modelo Habitante se
+ *  sigue usando internamente, pero solo a travÃ©s de este
+ *  controlador.
+ *
+ *  store() y update() envuelven la familia + sus habitantes en
+ *  una Ãºnica transacciÃ³n de base de datos (DB::transaction): o se
+ *  guarda todo, o no se guarda nada. Evita familias con
+ *  habitantes a medio registrar si algo falla a mitad de camino.
+ *
+ *  MANDATOS DE VOCERO (oct-2026, pendiente 14.8-I.2):
+ *  Dar de baja a un habitante cierra sus mandatos de vocero
+ *  activos. La regla vive en Habitante::cerrarMandatosActivos(),
+ *  disparada por el evento `deleted` del modelo, asÃ­ que update()
+ *  la aplica sola (usa $h->delete() por modelo). destroy() la
+ *  refuerza de forma explÃ­cita porque no depende de cÃ³mo cascadee
+ *  Familia::booted().
+ * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ */
+
+class FamiliaController extends Controller
+{
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    //  GET /api/v1/familias
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    /**
+     * Lista paginada de familias con sus relaciones bÃ¡sicas.
+     * El frontend puede pasar ?sede_id=1 para filtrar por sede.
+     */
+    public function index(Request $request): AnonymousResourceCollection
+    {
+        $query = Familia::with(['sede', 'calle'])
+            ->when($request->sede_id, fn ($q) =>
+                $q->where('sede_id', $request->sede_id)
+            )
+            ->when($request->condicion, fn ($q) =>
+                $q->where('condicion_vivienda', $request->condicion)
+            )
+            ->when($request->search, fn ($q) =>
+                $q->where(function ($inner) use ($request) {
+                    $inner->where('nombre_responsable', 'ilike', "%{$request->search}%")
+                        ->orWhere('codigo_vivienda',  'ilike', "%{$request->search}%");
+                })
+            )
+            ->orderBy('codigo_vivienda');
+
+        // Lista plana (ya no la usa el buscador de HabitanteForm, que
+        // fue eliminado, pero se conserva por si otro mÃ³dulo la usa)
+        if ($request->boolean('sin_paginar')) {
+            return FamiliaResource::collection(
+                $query->limit(20)->get()
+            );
+        }
+
+        // CorrecciÃ³n 3 (sept-2026): tope de per_page â€” sin esto,
+        // ?per_page=999999 permite extraer todo el censo en una sola
+        // peticiÃ³n (persistencia/robustez, backlog 11.2).
+        $porPagina = min(max((int) ($request->per_page ?? 20), 1), 50);
+
+        return FamiliaResource::collection(
+            $query->paginate($porPagina)
+        );
+    }
+
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    //  POST /api/v1/familias
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    public function store(StoreFamiliaRequest $request): JsonResponse
+    {
+        $datos          = $request->validated();
+        $habitantesData = $datos['habitantes'] ?? [];
+        unset($datos['habitantes']);
+
+        $familia = DB::transaction(function () use ($datos, $habitantesData) {
+            $familia = Familia::create($datos);
+
+            foreach ($habitantesData as $h) {
+                if (empty($h['es_discapacitado'])) {
+                    $h['tipo_discapacidad'] = null;
+                }
+                $this->crearHabitante($h, $familia->id);
+            }
+
+            return $familia;
+        });
+
+        // Cargar relaciones para la respuesta â€” evita N+1 en el Resource
+        $familia->load(['sede', 'calle', 'habitantes']);
+
+        return response()->json([
+            'message' => 'Familia y habitantes registrados correctamente.',
+            'data'    => new FamiliaResource($familia),
+        ], 201); // 201 Created â€” estÃ¡ndar REST para recursos nuevos
+    }
+
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    //  GET /api/v1/familias/{familia}
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    /**
+     * Perfil completo de una familia, incluyendo sus habitantes â€”
+     * usado tanto para el perfil de consulta como para precargar
+     * el modal de ediciÃ³n en FamiliaList.jsx.
+     */
+    public function show(Familia $familia): JsonResponse
+    {
+        $familia->load(['sede', 'calle', 'habitantes', 'beneficios']);
+
+        return response()->json([
+            'data' => new FamiliaResource($familia),
+        ], 200);
+    }
+
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    //  PUT /api/v1/familias/{familia}
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    public function update(UpdateFamiliaRequest $request, Familia $familia): JsonResponse
+    {
+        try {
+            $datos          = $request->validated();
+            $habitantesData = $datos['habitantes'] ?? null;
+            unset($datos['habitantes']);
+
+            DB::transaction(function () use ($datos, $habitantesData, $familia) {
+                $familia->update($datos);
+
+                // Si el payload no trae la clave 'habitantes' en absoluto,
+                // no se toca el padrÃ³n de esta familia â€” permite mandar
+                // solo los datos de la vivienda sin reenviar habitantes.
+                if ($habitantesData === null) {
+                    return;
+                }
+
+                $idsEnviados = collect($habitantesData)->pluck('id')->filter()->all();
+
+                // Dar de baja (soft delete) los habitantes que ya NO vienen
+                // en el payload â€” el usuario los quitÃ³ desde el formulario.
+                // Nota: whereNotIn con array vacÃ­o no excluye nada (todos
+                // los habitantes actuales se dan de baja), que es lo
+                // correcto si el usuario quitÃ³ a todos.
+                //
+                // Oct-2026: cada $h->delete() dispara el evento `deleted`
+                // de Habitante, que cierra sus mandatos de vocero activos
+                // dentro de esta misma transacciÃ³n.
+                $familia->habitantes()
+                    ->whereNotIn('id', $idsEnviados)
+                    ->get()
+                    ->each(fn (Habitante $h) => $h->delete());
+
+                foreach ($habitantesData as $h) {
+                    if (empty($h['es_discapacitado'])) {
+                        $h['tipo_discapacidad'] = null;
+                    }
+
+                    if (!empty($h['id'])) {
+                        // Habitante existente â€” actualizar. UpdateFamiliaRequest
+                        // ya verificÃ³ que este id pertenece a esta familia.
+                        $familia->habitantes()
+                            ->where('id', $h['id'])
+                            ->update(collect($h)->except('id')->all());
+                    } else {
+                        // Habitante nuevo agregado durante la ediciÃ³n
+                        $this->crearHabitante($h, $familia->id);
+                    }
+                }
+            });
+
+            // Recargar relaciones para devolver la fila completa al frontend
+            $familia->load(['sede', 'calle', 'habitantes']);
+
+            return response()->json([
+                'message' => 'Familia actualizada correctamente.',
+                'data'    => new FamiliaResource($familia),
+            ], 200);
+
+        } catch (\Exception $e) {
+            // CorrecciÃ³n 3 (sept-2026): el log ya NO guarda 'datos' â€”
+            // antes incluÃ­a validated() completo (nombres, cÃ©dulas de
+            // toda la familia) en texto plano en laravel.log. El
+            // family_id ya es suficiente para ubicar el registro en la
+            // BD si hace falta investigar el error.
+            Log::error('Error al actualizar familia', [
+                'familia_id' => $familia->id,
+                'error'      => $e->getMessage(),
+                'trace'      => $e->getTraceAsString(),
+            ]);
+
+            return response()->json([
+                'message' => 'Error interno al actualizar la familia. Revisa los logs del servidor.',
+                'errors'  => [],
+            ], 500);
+        }
+    }
+
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    //  Helper â€” crear un habitante nuevo dentro de una familia
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    /**
+     * CorrecciÃ³n 3 (sept-2026, backlog 11.2: "cÃ©dula duplicada tras
+     * dar de baja a un habitante"): antes, dar de baja a un habitante
+     * y luego intentar registrar a otro (o al mismo) con esa cÃ©dula
+     * chocaba contra el Ã­ndice Ãºnico de la BD, porque el soft delete
+     * no libera la cÃ©dula.
+     *
+     * Ahora: si existe un habitante DADO DE BAJA con esa misma
+     * cÃ©dula, se restaura ese registro con los datos nuevos en vez
+     * de crear uno nuevo â€” incluyendo reasignarlo a esta familia
+     * (la persona pudo haberse mudado a otro nÃºcleo familiar). Si no
+     * hay ningÃºn habitante de baja con esa cÃ©dula, se crea uno nuevo
+     * como antes.
+     *
+     * Restaurar al habitante NO reactiva sus mandatos de vocero
+     * cerrados al darlo de baja (oct-2026): si vuelve a ser vocero,
+     * se registra un mandato nuevo desde el mÃ³dulo de Voceros.
+     *
+     * StoreFamiliaRequest y UpdateFamiliaRequest ya validan la
+     * cÃ©dula ignorando los registros dados de baja (whereNull
+     * deleted_at), asÃ­ que esta cÃ©dula puede llegar aquÃ­ sin haber
+     * sido rechazada por la validaciÃ³n.
+     */
+    private function crearHabitante(array $datos, int $familiaId): Habitante
+    {
+        $datos['familia_id'] = $familiaId;
+        $cedula = $datos['cedula'] ?? null;
+
+        if ($cedula) {
+            $habitanteDeBaja = Habitante::onlyTrashed()
+                ->where('cedula', $cedula)
+                ->first();
+
+            if ($habitanteDeBaja) {
+                $habitanteDeBaja->restore();
+                $habitanteDeBaja->update($datos);
+
+                return $habitanteDeBaja->fresh();
+            }
+        }
+
+        return Habitante::create($datos);
+    }
+
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    //  DELETE /api/v1/familias/{familia}
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    /**
+     * Da de baja la familia (soft delete). Oct-2026: ademÃ¡s, cierra
+     * los mandatos de vocero activos de TODOS sus habitantes.
+     *
+     * Se hace de forma explÃ­cita y no solo por el evento `deleted`
+     * de Habitante, porque la cascada Familia â†’ habitantes puede
+     * ejecutarse como UPDATE/DELETE masivo (que no dispara eventos
+     * de modelo). cerrarMandatosActivos() es idempotente: si el
+     * evento ya los cerrÃ³, aquÃ­ no encuentra nada que cerrar.
+     * withTrashed() incluye a los habitantes reciÃ©n dados de baja
+     * por la cascada.
+     */
+    public function destroy(Familia $familia): JsonResponse
+    {
+        DB::transaction(function () use ($familia) {
+            $familia->delete();
+
+            Habitante::withTrashed()
+                ->where('familia_id', $familia->id)
+                ->get()
+                ->each(fn (Habitante $h) => $h->cerrarMandatosActivos());
+        });
+
+        return response()->json([
+            'message' => 'Familia eliminada correctamente.',
+        ], 200);
+    }
+}
+
+=== C:\Users\vivia\Documents\SIGET_V2\app\Http\Controllers\Api\V1\ReporteController.php ===
+<?php
+
+namespace App\Http\Controllers\Api\V1;
+
+use App\Http\Controllers\Controller;
+use App\Models\Habitante;
+use App\Models\Familia;
+use Barryvdh\DomPDF\Facade\Pdf;
+use Illuminate\Http\Request;
+use Illuminate\Http\Response;
+
+class ReporteController extends Controller
+{
+    /**
+     * GET /api/v1/reportes/constancia-residencia/{habitante}
+     *
+     * Genera en caliente la constancia de residencia de un habitante.
+     * No persiste nada en BD â€” extrae datos de los modelos existentes.
+     */
+    public function constanciaResidencia(Habitante $habitante): Response
+    {
+        // Cargar relaciones necesarias para la constancia
+        $habitante->load(['familia.sede', 'familia.calle']);
+
+        $datos = [
+            'habitante'   => $habitante,
+            'familia'     => $habitante->familia,
+            'sede'        => $habitante->familia?->sede,
+            'calle'       => $habitante->familia?->calle,
+            'fecha_emision' => now()->locale('es')->isoFormat('D [de] MMMM [de] YYYY'),
+            'titulo_doc'  => 'CONSTANCIA DE RESIDENCIA',
+        ];
+
+        $pdf = Pdf::loadView('pdf.constancia_residencia', $datos)
+                  ->setPaper('letter', 'portrait');
+
+        $nombreArchivo = 'constancia_residencia_' . str_replace(' ', '_', strtolower($habitante->nombres)) . '.pdf';
+
+        return $pdf->download($nombreArchivo);
+    }
+
+    /**
+     * GET /api/v1/reportes/estadisticas-dashboard
+     *
+     * Genera en caliente el reporte resumen del dashboard.
+     * Extrae directamente de los modelos, sin tabla de reportes.
+     */
+    public function estadisticasDashboard(): Response
+    {
+        $datos = [
+            'total_familias'     => \App\Models\Familia::count(),
+            'total_habitantes'   => \App\Models\Habitante::count(),
+            'con_discapacidad'   => \App\Models\Habitante::where('es_discapacitado', true)->count(),
+            'viviendas_criticas' => \App\Models\Familia::where('condicion_vivienda', 'critica')->count(),
+            'viviendas_regulares'=> \App\Models\Familia::where('condicion_vivienda', 'regular')->count(),
+            'viviendas_optimas'  => \App\Models\Familia::where('condicion_vivienda', 'optima')->count(),
+            'fecha_emision'      => now()->locale('es')->isoFormat('D [de] MMMM [de] YYYY H:mm [hrs]'),
+            'titulo_doc'         => 'REPORTE DE ESTADÃSTICAS COMUNALES',
+        ];
+
+        $pdf = Pdf::loadView('pdf.estadisticas_dashboard', $datos)
+                  ->setPaper('letter', 'portrait');
+
+        return $pdf->download('reporte_estadisticas_' . now()->format('Y-m-d') . '.pdf');
+    }
+}
+
+=== C:\Users\vivia\Documents\SIGET_V2\app\Http\Controllers\Api\V1\MapaCalorController.php ===
+<?php
+
+namespace App\Http\Controllers\Api\V1;
+
+use App\Http\Controllers\Controller;
+use App\Models\Calle;
+use App\Models\Encuesta;
+use App\Models\Familia;
+use App\Models\Sede;
+use App\Models\Vocero;
+use App\Services\EstimadorConsumoService;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Illuminate\Validation\Rule;
+
+/**
+ * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ *  MapaCalorController â€” Agregado por calle para una encuesta
+ * â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+ *  GET /api/v1/mapa-calor?encuesta_id=X                  â†’ index()
+ *  GET /api/v1/mapa-calor/calle/{calle}?encuesta_id=X    â†’ detalleCalle()
+ *
+ *  Alcance por rol (las rutas ya filtran a admin + vocero):
+ *  - admin:  todas las calles; el detalle incluye cada familia.
+ *  - vocero: solo las calles de las sedes donde tiene un mandato
+ *            ACTIVO, y SOLO CONTEOS agregados â€” nunca nombres de
+ *            familias (restricciÃ³n del profesor: el vocero no
+ *            accede a los datos del censo).
+ *
+ *  Modo de cÃ¡lculo segÃºn el tipo de encuesta:
+ *  - bombona_gas â†’ predicciÃ³n de agotamiento (EstimadorConsumoService)
+ *  - otros       â†’ cobertura simple (familias con entrega / total)
+ *
+ *  Sin cachÃ©: el mapa refleja siempre el estado real. Los cÃ¡lculos
+ *  se resuelven con un nÃºmero fijo de consultas (ver el servicio).
+ *
+ *  riesgo: 0 = bien Â· 1 = atenciÃ³n Â· 2 = crÃ­tico Â· null = sin datos
+ * â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+ */
+class MapaCalorController extends Controller
+{
+    public function __construct(private EstimadorConsumoService $estimador)
+    {
+    }
+
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    //  GET /api/v1/mapa-calor
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    public function index(Request $request): JsonResponse
+    {
+        $encuesta = $this->encuestaValidada($request);
+        $sedes    = $this->sedesPermitidas($request); // null = todas
+
+        $calles = Calle::query()
+            ->with('sede:id,nombre')
+            ->when($sedes !== null, fn ($q) => $q->whereIn('sede_id', $sedes))
+            ->orderBy('sede_id')
+            ->orderBy('nombre')
+            ->get(['id', 'nombre', 'sede_id', 'latitud', 'longitud']);
+
+        $calleIds = $calles->pluck('id')->map(fn ($id) => (int) $id)->all();
+
+        $resumenes = $encuesta->esDeGas()
+            ? $this->estimador->resumenPorCalles($calleIds, $encuesta->tipo)
+            : $this->estimador->resumenCoberturaPorCalles($calleIds, $encuesta->id);
+
+        $data = $calles->map(fn (Calle $calle) => array_merge([
+            'calle_id' => $calle->id,
+            'calle'    => $calle->nombre,
+            'sede'     => $calle->sede?->nombre,
+            'latitud'  => $calle->latitud,
+            'longitud' => $calle->longitud,
+        ], $resumenes[$calle->id]))->values();
+
+        return response()->json([
+            'message' => 'Mapa de calor generado correctamente.',
+            'data'    => $data,
+            'sedes'   => $this->sedesInvolucradas($calles->pluck('sede_id')->unique()->all()),
+            'modo'    => $encuesta->esDeGas() ? 'prediccion_agotamiento' : 'cobertura',
+        ]);
+    }
+
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    //  GET /api/v1/mapa-calor/calle/{calle}
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    /**
+     * Detalle de una calle al hacer clic en el mapa.
+     *
+     * Si la calle no pertenece a las sedes del vocero se rechaza con 403
+     * en vez de filtrar en silencio. El vocero recibe solo el resumen
+     * (conteos); `familias` es null para Ã©l.
+     */
+    public function detalleCalle(Request $request, Calle $calle): JsonResponse
+    {
+        $encuesta = $this->encuestaValidada($request);
+        $sedes    = $this->sedesPermitidas($request);
+
+        if ($sedes !== null && ! in_array((int) $calle->sede_id, $sedes, true)) {
+            abort(403, 'No tiene acceso a esta calle.');
+        }
+
+        $esAdmin  = $request->user()->esAdmin();
+        $familias = Familia::query()
+            ->where('calle_id', $calle->id)
+            ->orderBy('codigo_vivienda')
+            ->get(['id', 'nombre_responsable', 'codigo_vivienda']);
+
+        $ids = $familias->pluck('id')->map(fn ($id) => (int) $id);
+
+        if ($encuesta->esDeGas()) {
+            $estimaciones = $this->estimador->estimarPorFamilias($ids, $encuesta->tipo);
+            $conteo       = $estimaciones->countBy('estado');
+
+            $resumen = [
+                'sin_datos' => (int) ($conteo['sin_datos'] ?? 0),
+                'al_dia'    => (int) ($conteo['al_dia'] ?? 0),
+                'proximo'   => (int) ($conteo['proximo'] ?? 0),
+                'vencido'   => (int) ($conteo['vencido'] ?? 0),
+            ];
+
+            $detalle = $esAdmin
+                ? $familias->map(fn (Familia $f) => array_merge(
+                    ['responsable' => $f->nombre_responsable, 'codigo_vivienda' => $f->codigo_vivienda],
+                    $estimaciones[(int) $f->id]
+                ))->values()
+                : null;
+        } else {
+            $ultimas    = $this->estimador->ultimaEntregaPorFamilia($ids, $encuesta->id);
+            $conRespuesta = $ids->filter(fn ($id) => $ultimas->has($id))->count();
+
+            $resumen = [
+                'con_respuesta' => $conRespuesta,
+                'pendientes'    => $ids->count() - $conRespuesta,
+            ];
+
+            $detalle = $esAdmin
+                ? $familias->map(fn (Familia $f) => [
+                    'familia_id'      => $f->id,
+                    'responsable'     => $f->nombre_responsable,
+                    'codigo_vivienda' => $f->codigo_vivienda,
+                    'recibio'         => $ultimas->has((int) $f->id),
+                    'ultima_entrega'  => $ultimas->get((int) $f->id),
+                ])->values()
+                : null;
+        }
+
+        return response()->json([
+            'message' => 'Detalle de calle obtenido correctamente.',
+            'data'    => [
+                'calle'          => $calle->nombre,
+                'sede'           => $calle->sede?->nombre,
+                'total_familias' => $familias->count(),
+                'resumen'        => $resumen,
+                'familias'       => $detalle,
+            ],
+            'modo'    => $encuesta->esDeGas() ? 'prediccion_agotamiento' : 'cobertura',
+        ]);
+    }
+
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    //  Helpers privados
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+
+    /** Valida encuesta_id (la encuesta no debe estar dada de baja) y devuelve el modelo. */
+    private function encuestaValidada(Request $request): Encuesta
+    {
+        $request->validate([
+            'encuesta_id' => ['required', 'integer', Rule::exists('encuestas', 'id')->whereNull('deleted_at')],
+        ]);
+
+        return Encuesta::findOrFail((int) $request->input('encuesta_id'));
+    }
+
+    /**
+     * Sedes a las que el usuario puede acceder.
+     *  - admin  â†’ null (todas)
+     *  - vocero â†’ ids de las sedes de sus mandatos ACTIVOS (un habitante puede
+     *             tener varios registros, uno por mandato)
+     *  - otro rol, o vocero sin mandato activo â†’ 403
+     *
+     * @return array<int,int>|null
+     */
+    private function sedesPermitidas(Request $request): ?array
+    {
+        $user = $request->user();
+
+        if ($user->esAdmin()) {
+            return null;
+        }
+
+        if ($user->rol !== 'vocero') {
+            abort(403, 'No tiene acceso a esta informaciÃ³n.');
+        }
+
+        $sedes = $user->habitante_id
+            ? Vocero::activos()->where('habitante_id', $user->habitante_id)->pluck('sede_id')->unique()->values()->all()
+            : [];
+
+        if ($sedes === []) {
+            abort(403, 'No se encontrÃ³ un registro de vocero activo asociado a este usuario.');
+        }
+
+        return array_map('intval', $sedes);
+    }
+
+    /**
+     * id, nombre y polÃ­gono (limites) de las sedes presentes en el resultado,
+     * para que el frontend dibuje el contorno del territorio si existe.
+     *
+     * @param  array<int,int>  $sedeIds
+     */
+    private function sedesInvolucradas(array $sedeIds): array
+    {
+        if ($sedeIds === []) {
+            return [];
+        }
+
+        return Sede::query()
+            ->whereIn('id', $sedeIds)
+            ->orderBy('nombre')
+            ->get(['id', 'nombre', 'limites'])
+            ->toArray();
+    }
+}

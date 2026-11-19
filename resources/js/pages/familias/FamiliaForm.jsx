@@ -250,7 +250,7 @@ export default function FamiliaForm({ familiaExistente = null, onCancel, onSucce
         setHabitantes(prev => prev.map(h => h._localId === _localId
             ? {
                 ...h,
-                [field]: value,
+                [field]: (field === 'nombres' || field === 'apellidos') ? String(value).replace(/[^A-Za-z\u00C1\u00C9\u00CD\u00D3\u00DA\u00D1\u00DC\u00E1\u00E9\u00ED\u00F3\u00FA\u00F1\u00FC\s'-]/g, '') : value,
                 // Si se desmarca discapacidad, limpiar el tipo (igual que hacía HabitanteForm)
                 ...(field === 'es_discapacitado' && !value ? { tipo_discapacidad: '' } : {}),
             }

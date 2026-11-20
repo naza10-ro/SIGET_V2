@@ -1,0 +1,41 @@
+﻿
+=== C:\Users\vivia\Documents\SIGET_V2\resources\views\welcome.blade.php ===
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+
+    <title>SIGET - Sistema de GestiÃ³n Comunal</title>
+
+    <link
+        href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=Outfit:wght@300;400;500;600&display=swap"
+        rel="stylesheet">
+
+    @viteReactRefresh
+    @vite(['resources/js/app.jsx', 'resources/js/pages/auth/Login.css'])
+</head>
+
+<body style="margin: 0; padding: 0; font-family: 'Outfit', sans-serif;">
+
+    <div id="app"></div>
+
+</body>
+
+</html>
+
+=== C:\Users\vivia\Documents\SIGET_V2\vite.config.js ===
+import { defineConfig } from 'vite';
+import laravel from 'laravel-vite-plugin';
+import react from '@vitejs/plugin-react';
+
+export default defineConfig({
+    plugins: [
+        laravel({
+            input: ['resources/css/app.css', 'resources/js/app.jsx'],
+            refresh: true,
+        }),
+        react(),
+    ],
+});
